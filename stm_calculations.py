@@ -8,6 +8,20 @@ REBAR_DB = {
     "DB25": 490.87, "DB28": 615.75, "DB32": 804.25,
 }
 
+# Nominal diameter (mm) for each bar size — used for cover/spacing checks
+REBAR_DIAM_MM = {
+    "DB12": 12.0, "DB16": 16.0, "DB20": 20.0,
+    "DB25": 25.0, "DB28": 28.0, "DB32": 32.0,
+}
+
+# Yield strength per bar size (user-defined: ≤DB28 → 390 MPa, DB32 → 490 MPa)
+# ACI 318-19 §20.2.2.4: fy used in design shall not exceed 550 MPa.
+FY_CAP_MPA = 550.0
+REBAR_FY = {
+    "DB12": 390.0, "DB16": 390.0, "DB20": 390.0,
+    "DB25": 390.0, "DB28": 390.0, "DB32": 490.0,
+}
+
 
 def _bbox(coords):
     xs = [c[0] for c in coords]
@@ -421,6 +435,125 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         "min_strut_angle_deg": min_a, "angle_OK": a_ok,
         "overall_OK": (strut_dcr <= 1 and bear_dcr <= 1 and
                        col_dcr <= 1 and a_ok),
+    }
+
+
+def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
+                              cover_mm=75.0, top_bar_size="DB20"):
+    """Minimum top-face reinforcement for STM pile cap — ACI 318-19.
+
+    Three independent As checks + one spacing check are evaluated.
+
+    ─────────────────────────────────────────────────────────────────
+    (A) Temperature & Shrinkage  ─  ACI 318-19 §24.4.3.2 Table 24.4.3.2
+        ρ_ts = 0.0018              fy_d ≤ 420 MPa
+        ρ_ts = 0.0018 × 420 / fy_d  fy_d > 420 MPa  (min 0.0014)
+        As = ρ_ts × b × h_cap
+
+    (B) Minimum Flexural Reinforcement  ─  ACI 318-19 §9.6.1.2
+        ρ_flex = max(0.25√f'c / fy_d,  1.4 / fy_d)
+        As = ρ_flex × b × d_top
+        d_top = h_cap − cover − db_top/2
+
+    (C) Crack-Control for STM  ─  ACI 318-19 §23.5.1
+        Conservative: ρ_face ≥ 0.003 per orthogonal direction per face
+        As = 0.003 × b × h_cap
+
+    (D) Spacing Limit (crack-width control)  ─  ACI 318-19 §24.3.2
+        fs = (2/3) fy_d  (service stress, ACI default)
+        s ≤ min(380×(280/fs), 300×(280/fs)) mm
+        Combined with §24.4.3.3: s ≤ min(3h, 450 mm, s_crack)
+    ─────────────────────────────────────────────────────────────────
+    fy_d = min(REBAR_FY[top_bar_size], FY_CAP_MPA)
+         → fy_d ≤ 420 uses fy from REBAR_FY directly
+         → fy_d > 420 automatically adjusted per checks above
+         → hard cap at 550 MPa per ACI §20.2.2.4
+    """
+    # ── fy for design: bar-specific then ACI cap ──────────────────
+    fy_bar  = REBAR_FY.get(top_bar_size, fy_mpa)   # from REBAR_FY dict
+    fy_d    = min(fy_bar, FY_CAP_MPA)               # ACI §20.2.2.4 cap
+    db_top  = REBAR_DIAM_MM.get(top_bar_size, 20.0) # nominal diameter
+
+    # ── (A) T&S ─ §24.4.3.2 Table 24.4.3.2 ─────────────────────
+    if fy_d <= 420.0:
+        rho_ts = 0.0018
+    else:
+        rho_ts = max(0.0014, 0.0018 * 420.0 / fy_d)
+
+    As_ts_x = rho_ts * ly_mm * h_cap_mm
+    As_ts_y = rho_ts * lx_mm * h_cap_mm
+
+    # ── (B) Min Flexural As ─ §9.6.1.2 (ref. §13.3.3.1) ─────────
+    d_top   = max(1.0, h_cap_mm - cover_mm - db_top / 2.0)
+    rho_flex = max(0.25 * math.sqrt(fc_mpa) / fy_d,
+                   1.4 / fy_d)
+    As_flex_x = rho_flex * ly_mm * d_top
+    As_flex_y = rho_flex * lx_mm * d_top
+
+    # ── (C) Crack-control ─ §23.5.1 (ρ_face ≥ 0.003) ────────────
+    rho_cc  = 0.003
+    As_cc_x = rho_cc * ly_mm * h_cap_mm
+    As_cc_y = rho_cc * lx_mm * h_cap_mm
+
+    # ── Controlling As ────────────────────────────────────────────
+    As_top_x = max(As_ts_x, As_flex_x, As_cc_x)
+    As_top_y = max(As_ts_y, As_flex_y, As_cc_y)
+
+    def _governs(ts_v, flex_v, cc_v):
+        if cc_v >= ts_v and cc_v >= flex_v:
+            return "§23.5.1 crack-control  (ρ = 0.003)"
+        if flex_v >= ts_v:
+            return "§9.6.1.2 min-flex  (ρ = {:.4f})".format(rho_flex)
+        return "§24.4.3.2 T&S  (ρ = {:.4f})".format(rho_ts)
+
+    # ── (D) Spacing limits ────────────────────────────────────────
+    # §24.4.3.3: s ≤ min(3h, 450 mm)
+    s_ts_max  = min(3.0 * h_cap_mm, 450.0)
+    # §24.3.2: crack-width control (service stress = 2/3 × fy_d)
+    fs_serv   = (2.0 / 3.0) * fy_d
+    s_crack_1 = 380.0 * (280.0 / fs_serv)   # eq. (a)
+    s_crack_2 = 300.0 * (280.0 / fs_serv)   # eq. (b) — governs
+    s_crack   = min(s_crack_1, s_crack_2)
+    s_max_top = min(s_ts_max, s_crack)       # combined governing spacing
+
+    # flag if fy_bar was capped
+    fy_was_capped = (fy_bar > FY_CAP_MPA)
+    fy_note = ""
+    if fy_was_capped:
+        fy_note = ("fy_bar={:.0f} MPa capped to {:.0f} MPa "
+                   "(ACI §20.2.2.4)".format(fy_bar, FY_CAP_MPA))
+    elif fy_d > 420.0:
+        fy_note = ("fy={:.0f} MPa > 420 → ρ_ts reduced "
+                   "(§24.4.3.2); spacing checked §24.3.2".format(fy_d))
+    else:
+        fy_note = "fy={:.0f} MPa ≤ 420 MPa".format(fy_d)
+
+    return {
+        # Bar info
+        "top_bar_size":  top_bar_size,
+        "fy_bar_mpa":    fy_bar,
+        "fy_design_mpa": fy_d,
+        "db_top_mm":     db_top,
+        "fy_note":       fy_note,
+        # Governing ratios
+        "rho_ts":   rho_ts,
+        "rho_flex": rho_flex,
+        "rho_cc":   rho_cc,
+        "d_top_mm": d_top,
+        # Per-check As (mm²)
+        "As_ts_x_mm2":   As_ts_x,   "As_ts_y_mm2":   As_ts_y,
+        "As_flex_x_mm2": As_flex_x, "As_flex_y_mm2": As_flex_y,
+        "As_cc_x_mm2":   As_cc_x,   "As_cc_y_mm2":   As_cc_y,
+        # Controlling
+        "As_top_x_mm2": As_top_x,
+        "As_top_y_mm2": As_top_y,
+        "governs_x": _governs(As_ts_x, As_flex_x, As_cc_x),
+        "governs_y": _governs(As_ts_y, As_flex_y, As_cc_y),
+        # Spacing limits (mm)
+        "s_ts_max_mm":    s_ts_max,
+        "s_crack_mm":     s_crack,
+        "s_max_top_mm":   s_max_top,
+        "fs_service_mpa": fs_serv,
     }
 
 

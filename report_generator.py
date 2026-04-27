@@ -153,7 +153,8 @@ def _make_table(doc, headers, rows):
 
 
 def generate_report(inputs, results, x_chk, y_chk, pairs,
-                    anch_x=None, anch_y=None, opt_x=None, opt_y=None):
+                    anch_x=None, anch_y=None, opt_x=None, opt_y=None,
+                    top_rebar=None):
     doc = Document()
 
     # Title
@@ -403,8 +404,113 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
               "{:.0f}".format(anch_y["available_hook_mm"]),
               anch_y["recommended"]]])
 
-    # 6. Notes
-    doc.add_heading('6. Important Notes', level=1)
+    # 6. Top-Face Minimum Reinforcement
+    doc.add_heading('6. Top-Face Minimum Reinforcement (ACI 318-19)', level=1)
+    if top_rebar:
+        tr = top_rebar
+        p = doc.add_paragraph()
+        p.add_run(
+            "The top face of the pile cap is not part of the STM load path "
+            "but requires minimum reinforcement per three ACI 318-19 criteria:"
+        )
+
+        doc.add_heading('6.1 Temperature & Shrinkage — §24.4.3.2 Table 24.4.3.2',
+                        level=2)
+        p = doc.add_paragraph()
+        p.add_run("ρ_ts = {:.4f}  ".format(tr["rho_ts"])).bold = True
+        p.add_run("(fy ≤ 420 MPa → ρ = 0.0018)")
+        _make_table(doc, ['Direction', 'b (mm)', 'h (mm)',
+                          'ρ_ts', 'As_req (mm²)'], [
+            ['X', '{:.0f}'.format(inputs['cap_ly']),
+             str(inputs['h_cap']), '{:.4f}'.format(tr['rho_ts']),
+             '{:.0f}'.format(tr['As_ts_x_mm2'])],
+            ['Y', '{:.0f}'.format(inputs['cap_lx']),
+             str(inputs['h_cap']), '{:.4f}'.format(tr['rho_ts']),
+             '{:.0f}'.format(tr['As_ts_y_mm2'])],
+        ])
+
+        doc.add_heading('6.2 Min Flexural Reinforcement — §9.6.1.2 (ref. §13.3.3.1)',
+                        level=2)
+        p = doc.add_paragraph()
+        p.add_run("ρ_flex = max(0.25√f'c/fy, 1.4/fy) = "
+                  "{:.4f}".format(tr['rho_flex'])).bold = True
+        p.add_run(
+            "  |  d_top = h − cover − db/2 "
+            "= {} − {} − 12.5 = {:.0f} mm  (assumed DB25)".format(
+                inputs['h_cap'], inputs['cover'], tr['d_top_mm']))
+        _make_table(doc, ['Direction', 'b (mm)', 'd_top (mm)',
+                          'ρ_flex', 'As_req (mm²)'], [
+            ['X', '{:.0f}'.format(inputs['cap_ly']),
+             '{:.0f}'.format(tr['d_top_mm']),
+             '{:.4f}'.format(tr['rho_flex']),
+             '{:.0f}'.format(tr['As_flex_x_mm2'])],
+            ['Y', '{:.0f}'.format(inputs['cap_lx']),
+             '{:.0f}'.format(tr['d_top_mm']),
+             '{:.4f}'.format(tr['rho_flex']),
+             '{:.0f}'.format(tr['As_flex_y_mm2'])],
+        ])
+
+        doc.add_heading('6.3 Crack-Control for STM — §23.5.1 (ρ_face ≥ 0.003)',
+                        level=2)
+        p = doc.add_paragraph()
+        p.add_run(
+            "Eq. 23.5.1: Σ(Asi/bsi)·sinγi ≥ 0.003 per orthogonal direction. "
+            "Conservative simplification: ρ_face ≥ 0.003 each face."
+        )
+        _make_table(doc, ['Direction', 'b (mm)', 'h (mm)',
+                          'ρ_cc', 'As_req (mm²)'], [
+            ['X', '{:.0f}'.format(inputs['cap_ly']),
+             str(inputs['h_cap']), '0.0030',
+             '{:.0f}'.format(tr['As_cc_x_mm2'])],
+            ['Y', '{:.0f}'.format(inputs['cap_lx']),
+             str(inputs['h_cap']), '0.0030',
+             '{:.0f}'.format(tr['As_cc_y_mm2'])],
+        ])
+
+        doc.add_heading('6.4 Governing Top-Face Reinforcement', level=2)
+        _s_gov = tr.get("s_max_top_mm", min(3*inputs['h_cap'], 450))
+        _s_ts  = tr.get("s_ts_max_mm",  min(3*inputs['h_cap'], 450))
+        _s_cr  = tr.get("s_crack_mm",   9999)
+        _fs    = tr.get("fs_service_mpa", (2/3)*tr.get("fy_design_mpa", 420))
+        _fy_d  = tr.get("fy_design_mpa", 420)
+
+        p = doc.add_paragraph()
+        p.add_run("Bar selected: ").bold = True
+        p.add_run("{} (fy_bar = {:.0f} MPa, fy_design = {:.0f} MPa — {})".format(
+            tr.get("top_bar_size", "—"),
+            tr.get("fy_bar_mpa", _fy_d), _fy_d,
+            tr.get("fy_note", "")))
+
+        _make_table(doc,
+                    ['Direction', 'As_top req (mm²)', 'Governing Check'],
+                    [['X', '{:.0f}'.format(tr['As_top_x_mm2']),
+                      tr['governs_x']],
+                     ['Y', '{:.0f}'.format(tr['As_top_y_mm2']),
+                      tr['governs_y']]])
+
+        doc.add_heading('6.5 Spacing Limits', level=2)
+        _make_table(doc,
+                    ['Check', 's_max (mm)', 'Active'],
+                    [['§24.4.3.3  min(3h={:.0f}, 450)'.format(3*inputs['h_cap']),
+                      '{:.0f}'.format(_s_ts), 'Always'],
+                     ['§24.3.2  crack-width  (fs={:.0f} MPa)'.format(_fs),
+                      '{:.0f}'.format(_s_cr),
+                      'fy > 420' if _fy_d > 420 else 'Not active (fy ≤ 420)'],
+                     ['Governing s_max', '{:.0f}'.format(_s_gov), '← use this']])
+
+        p = doc.add_paragraph()
+        p.add_run("Placement: ").bold = True
+        p.add_run(
+            "Top bars placed in both X and Y directions, "
+            "uniformly distributed across the full cap width, "
+            "at cover depth from the top surface. "
+            "fy used in design per ACI §20.2.2.4: "
+            "≤DB28 → 390 MPa, DB32 → 490 MPa, capped at 550 MPa.")
+    else:
+        doc.add_paragraph("Top reinforcement data not available.")
+
+    # 7. Notes
+    doc.add_heading('7. Important Notes', level=1)
     p = doc.add_paragraph()
     rr = p.add_run("Per ACI 318-19 §13.4.6.3: ")
     rr.bold = True
@@ -415,8 +521,8 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         "behavior is implicitly captured through the strength of struts "
         "and nodal zones in the STM model.")
 
-    # 7. Conclusion
-    doc.add_heading('7. Conclusion', level=1)
+    # 8. Conclusion
+    doc.add_heading('8. Conclusion', level=1)
     p = doc.add_paragraph()
     if results['overall_OK'] and x_chk['ok'] and y_chk['ok']:
         rr = p.add_run("DESIGN OK. ")

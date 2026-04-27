@@ -7,8 +7,10 @@ from stm_calculations import (
     validate_pile_spacing, compute_cap_bounds_per_side,
     parse_custom_coords, stm_design,
     check_rebar, suggest_rebar, REBAR_DB,
+    REBAR_FY, REBAR_DIAM_MM, FY_CAP_MPA,
     compute_pile_reactions,
     optimize_rebar, check_anchorage,
+    compute_top_reinforcement,
 )
 from stm_visualization import (
     plot_layout_preview, plot_plan_view,
@@ -415,9 +417,18 @@ if calc_btn:
             anch_y = check_anchorage(y_bar, fc, fy,
                                      avail_str_y, avail_hook_y)
 
-            t1, t2, t6, t3, t4, t5 = st.tabs([
+            # Top-face minimum reinforcement — bar size from session state
+            _top_bar_default = st.session_state.get("top_bar_size", "DB20")
+            top_rebar = compute_top_reinforcement(
+                lx_mm=cap_lx, ly_mm=cap_ly,
+                h_cap_mm=h_cap, fy_mpa=fy, fc_mpa=fc,
+                cover_mm=cover,
+                top_bar_size=_top_bar_default)
+
+            t1, t2, t6, t3, t4, t7, t5 = st.tabs([
                 "📊 Plan", "📈 Elevation", "🎲 3D View",
-                "🔩 Reinforcement", "⚓ Anchorage", "📋 Detail"])
+                "🔩 Reinforcement", "⚓ Anchorage",
+                "🪟 Top Rebar", "📋 Detail"])
 
             with t1:
                 st.plotly_chart(
@@ -592,6 +603,191 @@ if calc_btn:
                         "- Available straight = min edge dist + D/4 − cover  # PATCHED: inner face of CCT node\n"
                         "- Available hook = available straight − cover")
 
+            with t7:
+                st.markdown("## 🪟 Top-Face Minimum Reinforcement")
+                st.markdown(
+                    "เหล็กผิวบนของ pile cap ไม่ได้รับแรงดึงจาก STM โดยตรง "
+                    "แต่ ACI 318-19 กำหนดเหล็กขั้นต่ำ **3 เกณฑ์ + 1 spacing check** "
+                    "โดย fy ที่ใช้คำนวณขึ้นอยู่กับ **ขนาดเหล็กที่เลือก** ตามเงื่อนไขจริง")
+
+                # ── Bar selector ─────────────────────────────────────
+                st.markdown("### เลือกขนาดเหล็กผิวบน")
+                _bar_options = list(REBAR_DB.keys())  # DB12…DB32
+                _cur_bar = st.session_state.get("top_bar_size", "DB20")
+                _sel_col, _info_col = st.columns([2, 3])
+                with _sel_col:
+                    _chosen_bar = st.selectbox(
+                        "Top bar size",
+                        options=_bar_options,
+                        index=_bar_options.index(_cur_bar),
+                        key="top_bar_size",
+                        help="เหล็ก ≤ DB28 → fy = 390 MPa | DB32 → fy = 490 MPa")
+                with _info_col:
+                    _fy_chosen = REBAR_FY[_chosen_bar]
+                    _fy_capped = min(_fy_chosen, FY_CAP_MPA)
+                    if _fy_chosen > 420:
+                        st.warning(
+                            "**{} : fy = {:.0f} MPa > 420 MPa**  \n"
+                            "ACI §24.4.3.2 → ρ_ts ลดลง  \n"
+                            "ACI §20.2.2.4 → cap ที่ {:.0f} MPa  \n"
+                            "ACI §24.3.2   → spacing limit เพิ่มเติม".format(
+                                _chosen_bar, _fy_chosen, FY_CAP_MPA))
+                    else:
+                        st.info(
+                            "**{} : fy = {:.0f} MPa ≤ 420 MPa**  \n"
+                            "ρ_ts = 0.0018  |  ไม่มี spacing penalty".format(
+                                _chosen_bar, _fy_chosen))
+
+                # ── Recompute with selected bar ───────────────────────
+                tr = compute_top_reinforcement(
+                    lx_mm=cap_lx, ly_mm=cap_ly,
+                    h_cap_mm=h_cap, fy_mpa=fy, fc_mpa=fc,
+                    cover_mm=cover, top_bar_size=_chosen_bar)
+
+                # ── Code Reference Expander ──────────────────────────
+                with st.expander("📖 Code Basis (ACI 318-19) — คลิกเพื่อดูรายละเอียด"):
+                    st.markdown("""
+**Check A — Temperature & Shrinkage  §24.4.3.2 Table 24.4.3.2**
+```
+ρ_ts = 0.0018              fy_d ≤ 420 MPa
+ρ_ts = 0.0018×420/fy_d    fy_d > 420 MPa  (min 0.0014)
+As_req = ρ_ts × b × h_cap
+```
+**Check B — Min Flexural Reinforcement  §9.6.1.2 (ref. §13.3.3.1)**
+```
+ρ_flex = max(0.25√f'c / fy_d,  1.4 / fy_d)
+As_req = ρ_flex × b × d_top  ;  d_top = h_cap − cover − db/2
+```
+**Check C — Crack-Control for STM  §23.5.1**
+```
+ρ_face ≥ 0.003 per direction per face  (conservative per CRSI)
+As_req = 0.003 × b × h_cap
+```
+**Check D — Spacing Limits**
+```
+§24.4.3.3 : s ≤ min(3h, 450 mm)
+§24.3.2   : s ≤ min(380×(280/fs), 300×(280/fs))  where fs = (2/3)fy_d
+            (only becomes active when fy_d > 420 MPa)
+§20.2.2.4 : fy_d used in design capped at 550 MPa
+```
+                    """)
+
+                # ── Numeric Results ──────────────────────────────────
+                st.markdown("### ผลการคำนวณ  (fy_d = {:.0f} MPa — {})".format(
+                    tr["fy_design_mpa"], tr["fy_note"]))
+
+                res_df = pd.DataFrame([
+                    {"Check": "A: T&S §24.4.3.2",
+                     "ρ used": "{:.4f}".format(tr["rho_ts"]),
+                     "As_X req (mm²)": "{:.0f}".format(tr["As_ts_x_mm2"]),
+                     "As_Y req (mm²)": "{:.0f}".format(tr["As_ts_y_mm2"])},
+                    {"Check": "B: Min-Flex §9.6.1.2",
+                     "ρ used": "{:.4f}".format(tr["rho_flex"]),
+                     "As_X req (mm²)": "{:.0f}".format(tr["As_flex_x_mm2"]),
+                     "As_Y req (mm²)": "{:.0f}".format(tr["As_flex_y_mm2"])},
+                    {"Check": "C: Crack-ctrl §23.5.1",
+                     "ρ used": "{:.4f}".format(tr["rho_cc"]),
+                     "As_X req (mm²)": "{:.0f}".format(tr["As_cc_x_mm2"]),
+                     "As_Y req (mm²)": "{:.0f}".format(tr["As_cc_y_mm2"])},
+                ])
+                st.dataframe(res_df, use_container_width=True, hide_index=True)
+
+                c1, c2 = st.columns(2)
+                c1.success(
+                    "**X-dir  As_top = {:.0f} mm²**  \n"
+                    "Governs: {}".format(
+                        tr["As_top_x_mm2"], tr["governs_x"]))
+                c2.success(
+                    "**Y-dir  As_top = {:.0f} mm²**  \n"
+                    "Governs: {}".format(
+                        tr["As_top_y_mm2"], tr["governs_y"]))
+
+                # ── Spacing Check ────────────────────────────────────
+                st.markdown("### ตรวจสอบระยะห่างสูงสุด")
+                _s_ts   = tr["s_ts_max_mm"]
+                _s_cr   = tr["s_crack_mm"]
+                _s_gov  = tr["s_max_top_mm"]
+                _fs     = tr["fs_service_mpa"]
+                spac_df = pd.DataFrame([
+                    {"เกณฑ์": "§24.4.3.3  min(3h, 450)",
+                     "s_max (mm)": "{:.0f}".format(_s_ts),
+                     "Active": "✅ เสมอ"},
+                    {"เกณฑ์": "§24.3.2  crack-width  (fs={:.0f} MPa)".format(_fs),
+                     "s_max (mm)": "{:.0f}".format(_s_cr),
+                     "Active": "⚠️ fy > 420" if tr["fy_design_mpa"] > 420
+                               else "— (fy ≤ 420)"},
+                ])
+                st.dataframe(spac_df, use_container_width=True, hide_index=True)
+                if tr["fy_design_mpa"] > 420:
+                    st.warning(
+                        "**s_max governing = {:.0f} mm** "
+                        "(§24.3.2 controls เนื่องจาก fy = {:.0f} MPa)".format(
+                            _s_gov, tr["fy_design_mpa"]))
+                else:
+                    st.info(
+                        "**s_max governing = {:.0f} mm** "
+                        "(§24.4.3.3 controls)".format(_s_gov))
+
+                # ── Bar Suggestions ──────────────────────────────────
+                st.markdown("### แนะนำขนาดเหล็กผิวบน  (Bar = {})".format(
+                    _chosen_bar))
+                _top_bars = ("DB12", "DB16", "DB20", "DB25", "DB28", "DB32")
+                _top_sx = suggest_rebar(tr["As_top_x_mm2"],
+                                        preferred=_top_bars)
+                _top_sy = suggest_rebar(tr["As_top_y_mm2"],
+                                        preferred=_top_bars)
+
+                def _spac_check(n, width, s_max):
+                    """Estimate actual spacing and flag if over limit."""
+                    if n <= 1:
+                        return "—"
+                    s_act = (width - 2*cover) / (n - 1)
+                    ok = s_act <= s_max
+                    return "{:.0f} mm {}".format(s_act, "✅" if ok else "❌ > {:.0f}".format(s_max))
+
+                sug_df = pd.DataFrame([
+                    {"ทิศทาง": "X", "ขนาด": sz,
+                     "fy (MPa)": "{:.0f}".format(REBAR_FY.get(sz, fy)),
+                     "จำนวน (เส้น)": n,
+                     "As prov (mm²)": "{:.0f}".format(a),
+                     "As req (mm²)": "{:.0f}".format(tr["As_top_x_mm2"]),
+                     "Ratio": "{:.2f}".format(
+                         a / tr["As_top_x_mm2"] if tr["As_top_x_mm2"] else 0),
+                     "Spacing (est.)": _spac_check(n, cap_ly, _s_gov),
+                     "Status": "✅" if a >= tr["As_top_x_mm2"] else "❌"}
+                    for sz, n, a in _top_sx
+                ] + [
+                    {"ทิศทาง": "Y", "ขนาด": sz,
+                     "fy (MPa)": "{:.0f}".format(REBAR_FY.get(sz, fy)),
+                     "จำนวน (เส้น)": n,
+                     "As prov (mm²)": "{:.0f}".format(a),
+                     "As req (mm²)": "{:.0f}".format(tr["As_top_y_mm2"]),
+                     "Ratio": "{:.2f}".format(
+                         a / tr["As_top_y_mm2"] if tr["As_top_y_mm2"] else 0),
+                     "Spacing (est.)": _spac_check(n, cap_lx, _s_gov),
+                     "Status": "✅" if a >= tr["As_top_y_mm2"] else "❌"}
+                    for sz, n, a in _top_sy
+                ])
+                st.dataframe(sug_df, use_container_width=True,
+                             hide_index=True)
+
+                # ── Placement Guide ──────────────────────────────────
+                st.markdown("### ตำแหน่งและรูปแบบการวาง")
+                st.markdown("""
+| ตำแหน่ง | รายละเอียด | อ้างอิง ACI |
+|---|---|---|
+| **ผิวบน แนว X** | วางแนวนอน กระจายตลอดความกว้าง ly | §24.4.3.2, §23.5.1 |
+| **ผิวบน แนว Y** | วางแนวขวาง กระจายตลอดความกว้าง lx | §24.4.3.2, §23.5.1 |
+| **ระยะ cover ผิวบน** | ≥ 50 mm (exposed) ตามสภาพแวดล้อม | §20.6.1.3 |
+| **ระยะห่างเหล็ก** | ≤ s_max governing (ดูตาราง spacing ด้านบน) | §24.4.3.3, §24.3.2 |
+| **ต่อทับ** | ≥ 1.3 × ld (Class B splice) | §25.5.2 |
+| **fy ใช้ออกแบบ** | ≤DB28 → 390 MPa, DB32 → 490 MPa, cap 550 MPa | §20.2.2.4 |
+""")
+                st.info(
+                    "💡 **หมายเหตุ:** กรณีเลือก DB32 (fy=490 MPa) "
+                    "ระยะห่างเหล็กถูกจำกัดเพิ่มเติมโดย §24.3.2 "
+                    "ซึ่งอาจทำให้ต้องเพิ่มจำนวนเหล็กแม้ว่า As จะเพียงพอแล้ว")
+
             with t5:
                 st.markdown("### Strut Forces")
                 rows = []
@@ -680,7 +876,8 @@ if calc_btn:
                 docx_buf = generate_report(
                     inputs_dict, results, x_chk, y_chk, pairs,
                     anch_x=anch_x, anch_y=anch_y,
-                    opt_x=opt_x, opt_y=opt_y)
+                    opt_x=opt_x, opt_y=opt_y,
+                    top_rebar=top_rebar)
                 st.download_button(
                     "⬇️ Download Word Report (.docx)",
                     data=docx_buf,
