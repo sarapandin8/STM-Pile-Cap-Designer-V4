@@ -15,6 +15,7 @@ from stm_calculations import (
 from stm_visualization import (
     plot_layout_preview, plot_plan_view,
     plot_elevation, plot_rebar_layout, plot_3d_view,
+    plot_top_rebar_layout,
 )
 from report_generator import generate_report
 
@@ -770,6 +771,15 @@ As_req = 0.003 × b × h_cap
                 ])
                 st.dataframe(sug_df, use_container_width=True,
                              hide_index=True)
+
+                # ── Plan View Diagram ────────────────────────────────
+                st.markdown("### แผนผังเหล็กผิวบน (Plan View)")
+                st.plotly_chart(
+                    plot_top_rebar_layout(
+                        coords, D, cap_lx, cap_ly,
+                        cap_cx, cap_cy, col_size, cap_polygon,
+                        tr, cover_mm=cover),
+                    use_container_width=True)
 
                 # ── Placement Guide ──────────────────────────────────
                 st.markdown("### ตำแหน่งและรูปแบบการวาง")

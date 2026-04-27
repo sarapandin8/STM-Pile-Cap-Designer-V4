@@ -4,6 +4,8 @@ PILE = "#5B8DEF"; COL = "#FF8A65"
 STRUT = "rgba(231,76,60,0.75)"; TIE = "rgba(46,204,113,0.9)"
 CAP_FILL = "rgba(189,195,199,0.25)"; CAP_BORDER = "#34495E"
 REBAR_X = "#E91E63"; REBAR_Y = "#3F51B5"
+TOP_X   = "#FF8F00"   # amber — top face X bars
+TOP_Y   = "#00897B"   # teal  — top face Y bars
 
 def _normalize_col(c):                            
     """Accept dict or scalar; return (section, bx, by, diam)."""
@@ -458,4 +460,162 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
             x=[None], y=[None], z=[None],
             mode="lines", line=dict(color=clr, width=6),
             name=nm, showlegend=True))
+    return fig
+
+
+# ==============================================================
+# TOP-FACE REINFORCEMENT PLAN VIEW
+# ==============================================================
+def plot_top_rebar_layout(coords, D, lx, ly, cx, cy, col_size,
+                          cap_polygon, top_rebar, cover_mm=75.0):
+    """Plan-view diagram of top-face minimum reinforcement.
+
+    Shows:
+    - Cap outline (same as other plan views)
+    - Top X-bars  (amber solid lines, horizontal)
+    - Top Y-bars  (teal dashed lines, vertical)
+    - Governing spacing limit annotation
+    - As / fy annotation per direction
+
+    top_rebar dict keys used:
+        top_bar_size, fy_design_mpa, db_top_mm,
+        As_top_x_mm2, As_top_y_mm2,
+        governs_x, governs_y,
+        s_max_top_mm, fy_note,
+        rebar_db  (optional — passed for area lookup)
+    """
+    import math as _m
+
+    # ── REBAR_DB inline (avoid circular import from stm_calculations) ──
+    _DB = {"DB12": 113.10, "DB16": 201.06, "DB20": 314.16,
+           "DB25": 490.87, "DB28": 615.75, "DB32": 804.25}
+
+    bar   = top_rebar.get("top_bar_size", "DB20")
+    A_bar = _DB.get(bar, 314.16)
+    fy_d  = top_rebar.get("fy_design_mpa", 390.0)
+    db_t  = top_rebar.get("db_top_mm", 20.0)
+    As_x  = top_rebar.get("As_top_x_mm2", 0.0)
+    As_y  = top_rebar.get("As_top_y_mm2", 0.0)
+    s_max = top_rebar.get("s_max_top_mm", 450.0)
+
+    # Min bars from As requirement
+    n_x = max(2, int(_m.ceil(As_x / A_bar))) if As_x > 0 else 2
+    n_y = max(2, int(_m.ceil(As_y / A_bar))) if As_y > 0 else 2
+
+    # Base cap outline
+    fig = plot_layout_preview(coords, D, lx, ly, cx, cy, col_size,
+                              "Top-Face Reinforcement (Plan)", cap_polygon)
+    if not coords:
+        return fig
+
+    xs_p = [c[0] for c in coords]
+    ys_p = [c[1] for c in coords]
+    sec_p, pbx, pby, pdm = _normalize_pile(D)
+    hw_x = (pdm if sec_p == "Circular" else pbx) / 2.0
+    hw_y = (pdm if sec_p == "Circular" else pby) / 2.0
+    x_min = min(xs_p) - hw_x
+    x_max = max(xs_p) + hw_x
+    y_min = min(ys_p) - hw_y
+    y_max = max(ys_p) + hw_y
+
+    # ── Top X-bars (horizontal solid amber) ─────────────────────
+    if n_x > 1:
+        ys_bar = [y_min + (y_max - y_min) * i / (n_x - 1)
+                  for i in range(n_x)]
+    else:
+        ys_bar = [(y_min + y_max) / 2.0]
+
+    for k, yb in enumerate(ys_bar):
+        fig.add_trace(go.Scatter(
+            x=[x_min, x_max], y=[yb, yb], mode="lines",
+            line={"color": TOP_X, "width": 2.5},
+            hovertemplate=(
+                "Top X-bar {}/{}  {}<br>"
+                "As_prov={:.0f} mm²  "
+                "fy={:.0f} MPa<extra></extra>".format(
+                    k + 1, n_x, bar,
+                    n_x * A_bar, fy_d)),
+            showlegend=(k == 0),
+            name="Top X ({} × {})".format(n_x, bar)))
+
+    # ── Top Y-bars (vertical teal dashed) ───────────────────────
+    if n_y > 1:
+        xs_bar = [x_min + (x_max - x_min) * i / (n_y - 1)
+                  for i in range(n_y)]
+    else:
+        xs_bar = [(x_min + x_max) / 2.0]
+
+    for k, xb in enumerate(xs_bar):
+        fig.add_trace(go.Scatter(
+            x=[xb, xb], y=[y_min, y_max], mode="lines",
+            line={"color": TOP_Y, "width": 2.5, "dash": "dash"},
+            hovertemplate=(
+                "Top Y-bar {}/{}  {}<br>"
+                "As_prov={:.0f} mm²  "
+                "fy={:.0f} MPa<extra></extra>".format(
+                    k + 1, n_y, bar,
+                    n_y * A_bar, fy_d)),
+            showlegend=(k == 0),
+            name="Top Y ({} × {})".format(n_y, bar)))
+
+    # ── Spacing limit annotation ─────────────────────────────────
+    # Draw a reference dimension line showing s_max
+    s_ref_x0 = x_min
+    s_ref_x1 = x_min + s_max
+    s_ref_y  = y_max + 200
+    fig.add_shape(type="line",
+        x0=s_ref_x0, y0=s_ref_y, x1=s_ref_x1, y1=s_ref_y,
+        line={"color": "#795548", "width": 2, "dash": "dot"})
+    fig.add_annotation(
+        x=(s_ref_x0 + s_ref_x1) / 2, y=s_ref_y + 120,
+        text="s_max = {:.0f} mm".format(s_max),
+        showarrow=False,
+        font={"color": "#795548", "size": 11})
+
+    # ── Per-direction summary annotations ───────────────────────
+    ann_y_base = cy + ly / 2 + 320
+    fig.add_annotation(
+        x=cx, y=ann_y_base,
+        text=(
+            "<b>Top X: {} × {}  "
+            "As_prov={:.0f} / req={:.0f} mm²  "
+            "fy={:.0f} MPa</b>  — {}".format(
+                n_x, bar,
+                n_x * A_bar, As_x,
+                fy_d,
+                top_rebar.get("governs_x", ""))),
+        showarrow=False,
+        font={"color": TOP_X, "size": 11})
+    fig.add_annotation(
+        x=cx, y=ann_y_base + 160,
+        text=(
+            "<b>Top Y: {} × {}  "
+            "As_prov={:.0f} / req={:.0f} mm²  "
+            "fy={:.0f} MPa</b>  — {}".format(
+                n_y, bar,
+                n_y * A_bar, As_y,
+                fy_d,
+                top_rebar.get("governs_y", ""))),
+        showarrow=False,
+        font={"color": TOP_Y, "size": 11})
+
+    # fy warning badge if fy > 420
+    if fy_d > 420:
+        fig.add_annotation(
+            x=cx, y=ann_y_base + 300,
+            text="⚠️ fy = {:.0f} MPa → spacing limited to {:.0f} mm (§24.3.2)".format(
+                fy_d, s_max),
+            showarrow=False,
+            font={"color": "#D84315", "size": 11},
+            bgcolor="rgba(255,224,178,0.8)",
+            bordercolor="#E65100", borderwidth=1)
+
+    fig.update_layout(
+        title=(
+            "Top-Face Min. Reinforcement — {} "
+            "(fy_d = {:.0f} MPa, s_max = {:.0f} mm)".format(
+                bar, fy_d, s_max)),
+        legend=dict(
+            orientation="h", yanchor="bottom",
+            y=1.02, xanchor="right", x=1))
     return fig
