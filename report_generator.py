@@ -95,6 +95,222 @@ def _plot_plan(coords, D, lx, ly, cx, cy, col_size, cap_polygon, results):
     return buf
 
 
+    return buf
+
+
+def _plot_bottom_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
+                           cap_polygon, x_bar, x_n, y_bar, y_n,
+                           x_chk, y_chk, cover_mm=75):
+    """Matplotlib plan view of bottom-face reinforcement for report Section 5."""
+    _DB = {"DB12": 113.10, "DB16": 201.06, "DB20": 314.16,
+           "DB25": 490.87, "DB28": 615.75, "DB32": 804.25}
+
+    fig, ax = plt.subplots(figsize=(7.5, 7.5))
+    # Cap outline
+    if cap_polygon:
+        ax.add_patch(MplPolygon(cap_polygon, closed=True, fill=True,
+            facecolor='#ecf0f1', edgecolor='#2c3e50', linewidth=2, alpha=0.5))
+    else:
+        ax.add_patch(patches.Rectangle(
+            (cx-lx/2, cy-ly/2), lx, ly,
+            facecolor='#ecf0f1', edgecolor='#2c3e50', linewidth=2, alpha=0.5))
+    # Column
+    sec_c, cbx, cby, cdm = _norm_col(col_size)
+    if sec_c == "Circular":
+        ax.add_patch(patches.Circle((cx, cy), cdm/2,
+            facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
+    else:
+        ax.add_patch(patches.Rectangle(
+            (cx-cbx/2, cy-cby/2), cbx, cby,
+            facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
+    # Piles
+    sec_p, pbx, pby, pdm = _norm_pile(D)
+    hw_x = (pdm if sec_p == "Circular" else pbx) / 2.0
+    hw_y = (pdm if sec_p == "Circular" else pby) / 2.0
+    for i, (px, py) in enumerate(coords, 1):
+        if sec_p == "Circular":
+            ax.add_patch(patches.Circle((px, py), pdm/2,
+                facecolor='#5B8DEF', edgecolor='#1F4E89', linewidth=1.5, zorder=4))
+        else:
+            ax.add_patch(patches.Rectangle(
+                (px-hw_x, py-hw_y), 2*hw_x, 2*hw_y,
+                facecolor='#5B8DEF', edgecolor='#1F4E89', linewidth=1.5, zorder=4))
+        ax.text(px, py, 'P{}'.format(i), ha='center', va='center',
+                color='white', fontsize=8, fontweight='bold', zorder=5)
+
+    xs_p = [c[0] for c in coords]; ys_p = [c[1] for c in coords]
+    x_min = min(xs_p) - hw_x;  x_max = max(xs_p) + hw_x
+    y_min = min(ys_p) - hw_y;  y_max = max(ys_p) + hw_y
+
+    # Bottom X-bars (horizontal, red solid)
+    if x_n > 1:
+        ys_bar = [y_min + (y_max-y_min)*k/(x_n-1) for k in range(x_n)]
+    else:
+        ys_bar = [(y_min+y_max)/2]
+    for yb in ys_bar:
+        ax.plot([x_min, x_max], [yb, yb], color='#E91E63', linewidth=2.0,
+                solid_capstyle='round', zorder=3)
+
+    # Bottom Y-bars (vertical, blue dashed)
+    if y_n > 1:
+        xs_bar = [x_min + (x_max-x_min)*k/(y_n-1) for k in range(y_n)]
+    else:
+        xs_bar = [(x_min+x_max)/2]
+    for xb in xs_bar:
+        ax.plot([xb, xb], [y_min, y_max], color='#3F51B5', linewidth=2.0,
+                linestyle='--', dashes=(8, 4), zorder=3)
+
+    # Legend proxies
+    ax.plot([], [], color='#E91E63', linewidth=2, label='{} × {} (X-dir) As={:.0f}mm²'.format(
+        x_n, x_bar, x_chk.get('As_provided', x_n*_DB.get(x_bar, 0))))
+    ax.plot([], [], color='#3F51B5', linewidth=2, linestyle='--',
+            label='{} × {} (Y-dir) As={:.0f}mm²'.format(
+        y_n, y_bar, y_chk.get('As_provided', y_n*_DB.get(y_bar, 0))))
+
+    # Status annotations
+    sx = "OK" if x_chk.get("ok") else "FAIL"
+    sy = "OK" if y_chk.get("ok") else "FAIL"
+    ax.annotate(
+        'X: As_req={:.0f}  As_prov={:.0f}  → {}'.format(
+            x_chk.get('As_required', 0), x_chk.get('As_provided', 0), sx),
+        xy=(cx, y_max+300), ha='center', fontsize=9, color='#C62828' if sx=='FAIL' else '#1B5E20')
+    ax.annotate(
+        'Y: As_req={:.0f}  As_prov={:.0f}  → {}'.format(
+            y_chk.get('As_required', 0), y_chk.get('As_provided', 0), sy),
+        xy=(cx, y_max+500), ha='center', fontsize=9, color='#C62828' if sy=='FAIL' else '#1B5E20')
+
+    pad = max(lx, ly)*0.1 + 600
+    ax.set_xlim(cx-lx/2-pad, cx+lx/2+pad)
+    ax.set_ylim(cy-ly/2-pad-100, cy+ly/2+pad+600)
+    ax.set_aspect('equal')
+    ax.legend(loc='lower center', fontsize=9, framealpha=0.85)
+    ax.set_title('Bottom-Face Reinforcement Layout (Plan View)')
+    ax.set_xlabel('X (mm)'); ax.set_ylabel('Y (mm)')
+    ax.grid(True, alpha=0.25)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=120, bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def _plot_top_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
+                        cap_polygon, top_rebar, cover_mm=75):
+    """Matplotlib plan view of top-face reinforcement for report Section 6."""
+    import math as _m
+    _DB = {"DB12": 113.10, "DB16": 201.06, "DB20": 314.16,
+           "DB25": 490.87, "DB28": 615.75, "DB32": 804.25}
+
+    bar   = top_rebar.get("top_bar_size", "DB20")
+    A_bar = _DB.get(bar, 314.16)
+    fy_d  = top_rebar.get("fy_design_mpa", 390.0)
+    As_x  = top_rebar.get("As_top_x_mm2", 0.0)
+    As_y  = top_rebar.get("As_top_y_mm2", 0.0)
+    s_max = top_rebar.get("s_max_top_mm", 450.0)
+    n_x   = max(2, int(_m.ceil(As_x / A_bar))) if As_x > 0 else 2
+    n_y   = max(2, int(_m.ceil(As_y / A_bar))) if As_y > 0 else 2
+
+    fig, ax = plt.subplots(figsize=(7.5, 7.5))
+    # Cap outline
+    if cap_polygon:
+        ax.add_patch(MplPolygon(cap_polygon, closed=True, fill=True,
+            facecolor='#fef9e7', edgecolor='#2c3e50', linewidth=2, alpha=0.6))
+    else:
+        ax.add_patch(patches.Rectangle(
+            (cx-lx/2, cy-ly/2), lx, ly,
+            facecolor='#fef9e7', edgecolor='#2c3e50', linewidth=2, alpha=0.6))
+    # Column
+    sec_c, cbx, cby, cdm = _norm_col(col_size)
+    if sec_c == "Circular":
+        ax.add_patch(patches.Circle((cx, cy), cdm/2,
+            facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
+    else:
+        ax.add_patch(patches.Rectangle(
+            (cx-cbx/2, cy-cby/2), cbx, cby,
+            facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
+    # Piles (outline only — top view)
+    sec_p, pbx, pby, pdm = _norm_pile(D)
+    hw_x = (pdm if sec_p == "Circular" else pbx) / 2.0
+    hw_y = (pdm if sec_p == "Circular" else pby) / 2.0
+    for i, (px, py) in enumerate(coords, 1):
+        if sec_p == "Circular":
+            ax.add_patch(patches.Circle((px, py), pdm/2,
+                facecolor='none', edgecolor='#7F8C8D', linewidth=1.5,
+                linestyle=':', zorder=3))
+        else:
+            ax.add_patch(patches.Rectangle(
+                (px-hw_x, py-hw_y), 2*hw_x, 2*hw_y,
+                facecolor='none', edgecolor='#7F8C8D', linewidth=1.5,
+                linestyle=':', zorder=3))
+        ax.text(px, py, 'P{}'.format(i), ha='center', va='center',
+                color='#5D6D7E', fontsize=8, zorder=4)
+
+    xs_p = [c[0] for c in coords]; ys_p = [c[1] for c in coords]
+    x_min = min(xs_p) - hw_x;  x_max = max(xs_p) + hw_x
+    y_min = min(ys_p) - hw_y;  y_max = max(ys_p) + hw_y
+
+    # Top X-bars (horizontal, amber)
+    if n_x > 1:
+        ys_bar = [y_min + (y_max-y_min)*k/(n_x-1) for k in range(n_x)]
+    else:
+        ys_bar = [(y_min+y_max)/2]
+    for yb in ys_bar:
+        ax.plot([x_min, x_max], [yb, yb], color='#FF8F00', linewidth=2.5,
+                solid_capstyle='round', zorder=3)
+
+    # Top Y-bars (vertical, teal dashed)
+    if n_y > 1:
+        xs_bar = [x_min + (x_max-x_min)*k/(n_y-1) for k in range(n_y)]
+    else:
+        xs_bar = [(x_min+x_max)/2]
+    for xb in xs_bar:
+        ax.plot([xb, xb], [y_min, y_max], color='#00897B', linewidth=2.5,
+                linestyle='--', dashes=(8, 4), zorder=3)
+
+    # s_max reference bar
+    ax.annotate('', xy=(x_min+s_max, y_max+200), xytext=(x_min, y_max+200),
+                arrowprops=dict(arrowstyle='<->', color='#795548', lw=1.5))
+    ax.text(x_min+s_max/2, y_max+350, 's_max={:.0f} mm'.format(s_max),
+            ha='center', fontsize=9, color='#795548')
+
+    # Legend and annotations
+    ax.plot([], [], color='#FF8F00', linewidth=2.5,
+            label='{} × {} (Top X) As={:.0f}mm² fy={:.0f}MPa'.format(
+                n_x, bar, n_x*A_bar, fy_d))
+    ax.plot([], [], color='#00897B', linewidth=2.5, linestyle='--',
+            label='{} × {} (Top Y) As={:.0f}mm² fy={:.0f}MPa'.format(
+                n_y, bar, n_y*A_bar, fy_d))
+
+    ax.annotate(
+        'Top X: As_req={:.0f}  As_prov={:.0f} mm²  ({})'.format(
+            As_x, n_x*A_bar, top_rebar.get('governs_x','')),
+        xy=(cx, y_max+600), ha='center', fontsize=9, color='#E65100')
+    ax.annotate(
+        'Top Y: As_req={:.0f}  As_prov={:.0f} mm²  ({})'.format(
+            As_y, n_y*A_bar, top_rebar.get('governs_y','')),
+        xy=(cx, y_max+800), ha='center', fontsize=9, color='#00695C')
+    if fy_d > 420:
+        ax.annotate(
+            '⚠ fy={:.0f} MPa → spacing limited by §24.3.2'.format(fy_d),
+            xy=(cx, y_max+1000), ha='center', fontsize=9,
+            color='#B71C1C',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#FFCCBC', alpha=0.8))
+
+    pad = max(lx, ly)*0.1 + 600
+    ax.set_xlim(cx-lx/2-pad, cx+lx/2+pad)
+    ax.set_ylim(cy-ly/2-pad-100, cy+ly/2+pad+1100)
+    ax.set_aspect('equal')
+    ax.legend(loc='lower center', fontsize=9, framealpha=0.85)
+    ax.set_title('Top-Face Minimum Reinforcement Layout (Plan View)')
+    ax.set_xlabel('X (mm)'); ax.set_ylabel('Y (mm)')
+    ax.grid(True, alpha=0.25)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=120, bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
 def _plot_elev(coords, h_cap, D, col_size, results):
     fig, ax = plt.subplots(figsize=(8, 5))
     if not coords:
@@ -322,32 +538,132 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
                       'Demand (kN)', 'DCR', 'Status'], rows)
 
     # 5. Reinforcement
-    doc.add_heading('5. Tie Reinforcement Design', level=1)
+    doc.add_heading('5. Tie Reinforcement Design (ACI 318-19 §23.7)', level=1)
+
+    doc.add_heading('5.1 Design Basis', level=2)
     p = doc.add_paragraph()
-    p.add_run('Required steel: ').bold = True
-    p.add_run("As_required = F_tie / (φ x fy)  (ACI 23.7.2)")
-    if results.get("is_3pile_resultant"):
-        p = doc.add_paragraph()
-        p.add_run('Resultant tie force (3-pile): ').bold = True
-        p.add_run("{:.1f} kN — √(Ftx²+Fty²), used for As_x = As_y".format(
-            results['F_tie_res_kN']))
+    p.add_run('Governing formula (ACI §23.7.2): ').bold = True
+    p.add_run('As ≥ F_tie / (φ × fy)    where  φ = 0.75 (ACI Table 21.2.1)')
+    p = doc.add_paragraph()
+    p.add_run('Tie force principle (STM equilibrium): ').bold = True
+    p.add_run(
+        'F_tie = horizontal component of the diagonal strut. '
+        'For each pile at coordinate (x_i, y_i) with reaction P_i:')
+    p = doc.add_paragraph()
+    p.add_run('  F_tie_x,i = P_i × |x_i| / d_eff      '
+              'F_tie_y,i = P_i × |y_i| / d_eff')
+    p = doc.add_paragraph()
+    p.add_run(
+        'The total tie force per direction is the SUM over all piles '
+        'contributing to that direction (ACI STM equilibrium, not the single maximum):')
+    p = doc.add_paragraph()
+    p.add_run('  ΣF_tie_x = Σ (P_i × |x_i|) / d_eff    (i = all piles with x_i ≠ 0)')
+    p = doc.add_paragraph()
+    p.add_run('  ΣF_tie_y = Σ (P_i × |y_i|) / d_eff    (i = all piles with y_i ≠ 0)')
+
+    doc.add_heading('5.2 Per-Pile Tie Force Contribution', level=2)
+    p = doc.add_paragraph()
+    p.add_run('d_eff = {:.0f} mm    φ = 0.75    fy = {:.0f} MPa'.format(
+        results['d_effective_mm'], inputs['fy'])).bold = True
+
+    # Build per-pile table
+    struts = results.get('struts', [])
+    pile_rows = []
+    Ftx_sum = 0.0; Fty_sum = 0.0
+    for i, s in enumerate(struts):
+        x_i, y_i = s['coord']
+        p_i = s['P_i_kN']
+        ftx = s['F_tie_x_kN']
+        fty = s['F_tie_y_kN']
+        Ftx_sum += ftx; Fty_sum += fty
+        pile_rows.append([
+            'P{}'.format(i+1),
+            '{:.0f}'.format(x_i), '{:.0f}'.format(y_i),
+            '{:.1f}'.format(p_i),
+            '{:.0f}'.format(abs(x_i)), '{:.0f}'.format(abs(y_i)),
+            '{:.1f}'.format(ftx), '{:.1f}'.format(fty),
+        ])
+    pile_rows.append([
+        'TOTAL', '—', '—', '—', '—', '—',
+        '{:.1f}'.format(results['As_x_required_mm2'] * 0.75 * inputs['fy'] / 1000),
+        '{:.1f}'.format(results['As_y_required_mm2'] * 0.75 * inputs['fy'] / 1000),
+    ])
     _make_table(doc,
-        ['Direction', 'F_tie (kN)', 'As req (mm²)', 'Selected',
+        ['Pile', 'x (mm)', 'y (mm)', 'P_i (kN)',
+         '|x| (mm)', '|y| (mm)', 'F_tie_x (kN)', 'F_tie_y (kN)'],
+        pile_rows)
+
+    doc.add_heading('5.3 Tie Force Summary & As Calculation', level=2)
+    is_3p = results.get('is_3pile_resultant', False)
+    if is_3p:
+        p = doc.add_paragraph()
+        p.add_run('3-Pile resultant tie: ').bold = True
+        p.add_run(
+            'For 3-pile caps, the resultant tie force is used to avoid '
+            'coordinate-rotation dependency:')
+        p = doc.add_paragraph()
+        p.add_run('  F_res = √(ΣFtx² + ΣFty²) = {:.1f} kN'.format(
+            results['F_tie_res_kN']))
+        p = doc.add_paragraph()
+        p.add_run('  As_x = As_y = F_res / (φ × fy) = '
+                  '{:.1f} / (0.75 × {:.0f}) = {:.0f} mm²'.format(
+                      results['F_tie_res_kN'], inputs['fy'],
+                      results['As_x_required_mm2']))
+    else:
+        p = doc.add_paragraph()
+        p.add_run('X-direction: ').bold = True
+        p.add_run(
+            'ΣF_tie_x = {:.1f} kN  →  '
+            'As_x = {:.1f} / (0.75 × {:.0f}) = {:.0f} mm²'.format(
+                results['As_x_required_mm2'] * 0.75 * inputs['fy'] / 1000,
+                results['As_x_required_mm2'] * 0.75 * inputs['fy'] / 1000,
+                inputs['fy'], results['As_x_required_mm2']))
+        p = doc.add_paragraph()
+        p.add_run('Y-direction: ').bold = True
+        p.add_run(
+            'ΣF_tie_y = {:.1f} kN  →  '
+            'As_y = {:.1f} / (0.75 × {:.0f}) = {:.0f} mm²'.format(
+                results['As_y_required_mm2'] * 0.75 * inputs['fy'] / 1000,
+                results['As_y_required_mm2'] * 0.75 * inputs['fy'] / 1000,
+                inputs['fy'], results['As_y_required_mm2']))
+
+    doc.add_heading('5.4 Selected Reinforcement', level=2)
+    _make_table(doc,
+        ['Direction', 'ΣF_tie (kN)', 'As req (mm²)', 'Selected',
          'As prov (mm²)', 'Ratio', 'Status'],
-        [["X (along x-axis)",
-          "{:.1f}".format(results['F_tie_x_max_kN'] if not results.get("is_3pile_resultant") else results['F_tie_res_kN']),
+        [["X",
+          "{:.1f}".format(results['F_tie_x_max_kN'] if not is_3p else results['F_tie_res_kN']),
           "{:.0f}".format(results['As_x_required_mm2']),
           "{}-{}".format(x_chk['n_bars'], x_chk['bar_size']),
           "{:.0f}".format(x_chk['As_provided']),
           "{:.2f}".format(x_chk['ratio']),
           "OK" if x_chk['ok'] else "FAIL"],
-         ["Y (along y-axis)",
-          "{:.1f}".format(results['F_tie_y_max_kN'] if not results.get("is_3pile_resultant") else results['F_tie_res_kN']),
+         ["Y",
+          "{:.1f}".format(results['F_tie_y_max_kN'] if not is_3p else results['F_tie_res_kN']),
           "{:.0f}".format(results['As_y_required_mm2']),
           "{}-{}".format(y_chk['n_bars'], y_chk['bar_size']),
           "{:.0f}".format(y_chk['As_provided']),
           "{:.2f}".format(y_chk['ratio']),
           "OK" if y_chk['ok'] else "FAIL"]])
+
+    # Figure: Bottom Rebar Layout
+    img_bot = _plot_bottom_rebar_fig(
+        inputs['coords'], inputs['D'],
+        inputs['cap_lx'], inputs['cap_ly'],
+        inputs.get('cap_cx', 0), inputs.get('cap_cy', 0),
+        inputs['col_size'], inputs.get('cap_polygon'),
+        x_chk['bar_size'], x_chk['n_bars'],
+        y_chk['bar_size'], y_chk['n_bars'],
+        x_chk, y_chk, inputs['cover'])
+    if img_bot:
+        doc.add_picture(img_bot, width=Inches(6))
+        cap = doc.add_paragraph()
+        cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cap.add_run(
+            'Figure 3: Bottom-Face Reinforcement Layout — '
+            '{} × {} (X-dir, red) and {} × {} (Y-dir, blue dashed)'.format(
+                x_chk['n_bars'], x_chk['bar_size'],
+                y_chk['n_bars'], y_chk['bar_size'])).italic = True
     
     # 5.5 Auto-Optimized Rebar (min weight)
     if opt_x and opt_y:
@@ -506,6 +822,34 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
             "at cover depth from the top surface. "
             "fy used in design per ACI §20.2.2.4: "
             "≤DB28 → 390 MPa, DB32 → 490 MPa, capped at 550 MPa.")
+
+        # Figure: Top Rebar Layout
+        img_top = _plot_top_rebar_fig(
+            inputs['coords'], inputs['D'],
+            inputs['cap_lx'], inputs['cap_ly'],
+            inputs.get('cap_cx', 0), inputs.get('cap_cy', 0),
+            inputs['col_size'], inputs.get('cap_polygon'),
+            tr, inputs['cover'])
+        if img_top:
+            doc.add_picture(img_top, width=Inches(6))
+            cap = doc.add_paragraph()
+            cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            cap.add_run(
+                'Figure 4: Top-Face Minimum Reinforcement Layout — '
+                '{n_x} × {bar} (X-dir, amber) and '
+                '{n_y} × {bar} (Y-dir, teal dashed). '
+                'fy_design = {fy:.0f} MPa, s_max = {s:.0f} mm'.format(
+                    n_x=max(2, int(__import__('math').ceil(
+                        tr['As_top_x_mm2'] / {"DB12":113.10,"DB16":201.06,
+                        "DB20":314.16,"DB25":490.87,"DB28":615.75,
+                        "DB32":804.25}.get(tr.get('top_bar_size','DB20'), 314.16)))),
+                    n_y=max(2, int(__import__('math').ceil(
+                        tr['As_top_y_mm2'] / {"DB12":113.10,"DB16":201.06,
+                        "DB20":314.16,"DB25":490.87,"DB28":615.75,
+                        "DB32":804.25}.get(tr.get('top_bar_size','DB20'), 314.16)))),
+                    bar=tr.get('top_bar_size', 'DB20'),
+                    fy=tr.get('fy_design_mpa', 390),
+                    s=tr.get('s_max_top_mm', 450))).italic = True
     else:
         doc.add_paragraph("Top reinforcement data not available.")
 

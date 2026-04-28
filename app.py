@@ -42,6 +42,7 @@ DEFAULTS = {
     "custom_shape": "Square",
     "x_bar": "DB20", "x_n": 8,
     "y_bar": "DB20", "y_n": 8,
+    "top_bar_size": "DB20",
 }
 for _k, _v in DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
@@ -363,291 +364,298 @@ st.info(
 st.divider()
 
 # ===== Calculate =====
+# ===== Calculate =====
 if calc_btn:
     if not coords:
         st.error("Cannot calculate: no piles.")
     elif not ok_sp:
         st.error("Cannot calculate: spacing violations.")
     else:
-        results = stm_design(coords, Pu, Mux, Muy, fc, fy, D,
-                             col_size, h_cap, cover)
-        if "error" in results:
-            st.error(results["error"])
+        _res = stm_design(coords, Pu, Mux, Muy, fc, fy, D,
+                          col_size, h_cap, cover)
+        if "error" in _res:
+            st.error(_res["error"])
+            st.session_state.pop("_stm_results", None)
         else:
-            ok = results["overall_OK"]
-            tag = "✅ DESIGN OK" if ok else "❌ DESIGN FAILS"
-            msg = ("{} - Strut DCR={:.2f}, Bearing DCR={:.2f}, "
-                   "Column DCR={:.2f}").format(
-                tag, results["strut_DCR"],
-                results["bearing_DCR"], results["column_DCR"])
-            (st.success if ok else st.error)(msg)
-            if results["has_uplift"]:
-                st.warning("⚠️ Uplift detected (P_min = {:.1f} kN). "
-                           "Provide tension piles or anchorage.".format(
-                               results["P_min_kN"]))
+            st.session_state["_stm_results"] = _res
 
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("P_max",
-                      "{:.0f} kN".format(results["P_max_kN"]))
-            m2.metric("Tie X max",
-                      "{:.0f} kN".format(results["F_tie_x_max_kN"]))
-            m3.metric("Tie Y max",
-                      "{:.0f} kN".format(results["F_tie_y_max_kN"]))
-            m4.metric("d_eff",
-                      "{:.0f} mm".format(results["d_effective_mm"]))
+# ===== Display (persists across reruns — dropdown-safe) =====
+if "_stm_results" in st.session_state:
+    results = st.session_state["_stm_results"]
 
-            x_chk = check_rebar(x_bar, int(x_n),
-                                results["As_x_required_mm2"])
-            y_chk = check_rebar(y_bar, int(y_n),
-                                results["As_y_required_mm2"])
+    ok = results["overall_OK"]
+    tag = "\u2705 DESIGN OK" if ok else "\u274c DESIGN FAILS"
+    msg = ("{} - Strut DCR={:.2f}, Bearing DCR={:.2f}, "
+           "Column DCR={:.2f}").format(
+        tag, results["strut_DCR"],
+        results["bearing_DCR"], results["column_DCR"])
+    (st.success if ok else st.error)(msg)
+    if results["has_uplift"]:
+        st.warning("\u26a0\ufe0f Uplift detected (P_min = {:.1f} kN). "
+                   "Provide tension piles or anchorage.".format(
+                       results["P_min_kN"]))
 
-            # Auto-optimize
-            opt_x, opts_x = optimize_rebar(
-                results["As_x_required_mm2"], cap_lx)
-            opt_y, opts_y = optimize_rebar(
-                results["As_y_required_mm2"], cap_ly)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("P_max",
+              "{:.0f} kN".format(results["P_max_kN"]))
+    m2.metric("Tie X max",
+              "{:.0f} kN".format(results["F_tie_x_max_kN"]))
+    m3.metric("Tie Y max",
+              "{:.0f} kN".format(results["F_tie_y_max_kN"]))
+    m4.metric("d_eff",
+              "{:.0f} mm".format(results["d_effective_mm"]))
 
-            # Anchorage check
-            # PATCHED 2026-04-27: use D/4 (inner face of CCT node) not D/2
-            avail_str_x = min(e_left, e_right) + _gov_max/4.0 - cover
-            avail_hook_x = avail_str_x - cover
-            avail_str_y = min(e_top, e_bot) + _gov_max/4.0 - cover
-            avail_hook_y = avail_str_y - cover
-            anch_x = check_anchorage(x_bar, fc, fy,
-                                     avail_str_x, avail_hook_x)
-            anch_y = check_anchorage(y_bar, fc, fy,
-                                     avail_str_y, avail_hook_y)
+    x_chk = check_rebar(x_bar, int(x_n),
+                        results["As_x_required_mm2"])
+    y_chk = check_rebar(y_bar, int(y_n),
+                        results["As_y_required_mm2"])
 
-            # Top-face minimum reinforcement — bar size from session state
-            _top_bar_default = st.session_state.get("top_bar_size", "DB20")
-            top_rebar = compute_top_reinforcement(
-                lx_mm=cap_lx, ly_mm=cap_ly,
-                h_cap_mm=h_cap, fy_mpa=fy, fc_mpa=fc,
-                cover_mm=cover,
-                top_bar_size=_top_bar_default)
+    # Auto-optimize
+    opt_x, opts_x = optimize_rebar(
+        results["As_x_required_mm2"], cap_lx)
+    opt_y, opts_y = optimize_rebar(
+        results["As_y_required_mm2"], cap_ly)
 
-            t1, t2, t6, t3, t4, t7, t5 = st.tabs([
-                "📊 Plan", "📈 Elevation", "🎲 3D View",
-                "🔩 Reinforcement", "⚓ Anchorage",
-                "🪟 Top Rebar", "📋 Detail"])
+    # Anchorage check
+    # use D/4 (inner face of CCT node) not D/2
+    avail_str_x = min(e_left, e_right) + _gov_max/4.0 - cover
+    avail_hook_x = avail_str_x - cover
+    avail_str_y = min(e_top, e_bot) + _gov_max/4.0 - cover
+    avail_hook_y = avail_str_y - cover
+    anch_x = check_anchorage(x_bar, fc, fy,
+                             avail_str_x, avail_hook_x)
+    anch_y = check_anchorage(y_bar, fc, fy,
+                             avail_str_y, avail_hook_y)
 
-            with t1:
-                st.plotly_chart(
-                    plot_plan_view(coords, D, cap_lx, cap_ly,
-                                   col_size, results,
-                                   cap_cx, cap_cy, cap_polygon),
-                    use_container_width=True)
-                st.markdown("**Pile Reactions** (rigid-cap formula)")
-                st.code("P_i = Pu/n + Mux·y_i / Σy_j² + Muy·x_i / Σx_j²")
-                rdf = pd.DataFrame([{
-                    "Pile": "P{}".format(i+1),
-                    "X (mm)": "{:.0f}".format(c[0]),
-                    "Y (mm)": "{:.0f}".format(c[1]),
-                    "P_i (kN)": "{:.1f}".format(P),
-                } for i, (c, P) in enumerate(
-                    zip(coords, results["pile_loads_kN"]))])
-                st.dataframe(rdf, use_container_width=True, hide_index=True)
+    # Top-face reinforcement — always recomputed fresh (dropdown-safe)
+    top_rebar = compute_top_reinforcement(
+        lx_mm=cap_lx, ly_mm=cap_ly,
+        h_cap_mm=h_cap, fy_mpa=fy, fc_mpa=fc,
+        cover_mm=cover,
+        top_bar_size=st.session_state.get("top_bar_size", "DB20"))
 
-            with t2:
-                st.plotly_chart(
-                    plot_elevation(coords, h_cap, D, col_size, results),
-                    use_container_width=True)
-            
-            with t6:
-                st.plotly_chart(
-                    plot_3d_view(coords, D, cap_lx, cap_ly,
-                                 cap_cx, cap_cy, col_size, h_cap,
-                                 cap_polygon, results),
-                    use_container_width=True)
-                st.caption(
-                    "🖱️ **Drag** to rotate | **Scroll** to zoom | "
-                    "**Shift+drag** to pan | **Double-click** to reset view")
-                st.markdown(
-                    "**Color legend (Struts):** "
-                    "🟢 DCR < 60% | 🟠 60–85% | 🔴 > 85%  &nbsp;&nbsp; "
-                    "**Ties** shown as dotted green lines.")
-            
-            with t3:
-                st.markdown("### Required Reinforcement")
-                if results.get("is_3pile_resultant"):
-                    tie_x_display = tie_y_display = results["F_tie_res_kN"]
-                    note = " (Resultant)"
-                else:
-                    tie_x_display = results["F_tie_x_max_kN"]
-                    tie_y_display = results["F_tie_y_max_kN"]
-                    note = ""
-                req_df = pd.DataFrame([
-                    {"Direction": "X"+note,
-                     "Tie (kN)":
-                         "{:.1f}".format(tie_x_display),
-                     "As req (mm²)":
-                         "{:.0f}".format(results["As_x_required_mm2"]),
-                     "Selected": "{}-{}".format(int(x_n), x_bar),
-                     "As prov (mm²)":
-                         "{:.0f}".format(x_chk["As_provided"]),
-                     "Ratio": "{:.2f}".format(x_chk["ratio"]),
-                     "Status": "✅ OK" if x_chk["ok"] else "❌ FAIL"},
-                    {"Direction": "Y"+note,
-                     "Tie (kN)":
-                         "{:.1f}".format(tie_y_display),
-                     "As req (mm²)":
-                         "{:.0f}".format(results["As_y_required_mm2"]),
-                     "Selected": "{}-{}".format(int(y_n), y_bar),
-                     "As prov (mm²)":
-                         "{:.0f}".format(y_chk["As_provided"]),
-                     "Ratio": "{:.2f}".format(y_chk["ratio"]),
-                     "Status": "✅ OK" if y_chk["ok"] else "❌ FAIL"},
-                ])
-                st.dataframe(req_df, use_container_width=True,
-                             hide_index=True)
-                if results.get("is_3pile_resultant"):
-                    st.info("ฐาน 3 เข็ม: As คำนวณจาก F_res = √(Ftx²+Fty²) = {:.1f} kN → ใส่เหล็กเท่ากันทั้ง X และ Y".format(results["F_tie_res_kN"]))
+    t1, t2, t6, t3, t4, t7, t5 = st.tabs([
+        "📊 Plan", "📈 Elevation", "🎲 3D View",
+        "🔩 Reinforcement", "⚓ Anchorage",
+        "🪟 Top Rebar", "📋 Detail"])
 
-                st.markdown("### 🤖 Auto-Optimized Rebar (Min Weight)")
-                col_o1, col_o2, col_o3 = st.columns([2, 2, 1])
-                col_o1.success(
-                    "**X-dir optimal:** {}-{} | "
-                    "As={:.0f} mm² | Wt={:.2f} kg".format(
-                        opt_x["n_bars"], opt_x["bar_size"],
-                        opt_x["As_provided"], opt_x["weight_kg"]))
-                col_o2.success(
-                    "**Y-dir optimal:** {}-{} | "
-                    "As={:.0f} mm² | Wt={:.2f} kg".format(
-                        opt_y["n_bars"], opt_y["bar_size"],
-                        opt_y["As_provided"], opt_y["weight_kg"]))
-                if col_o3.button("Back To Rebar Selection", use_container_width=True):
-                    st.session_state.x_bar = opt_x["bar_size"]
-                    st.session_state.x_n = int(opt_x["n_bars"])
-                    st.session_state.y_bar = opt_y["bar_size"]
-                    st.session_state.y_n = int(opt_y["n_bars"])
-                    st.rerun()
+    with t1:
+        st.plotly_chart(
+            plot_plan_view(coords, D, cap_lx, cap_ly,
+                           col_size, results,
+                           cap_cx, cap_cy, cap_polygon),
+            use_container_width=True)
+        st.markdown("**Pile Reactions** (rigid-cap formula)")
+        st.code("P_i = Pu/n + Mux·y_i / Σy_j² + Muy·x_i / Σx_j²")
+        rdf = pd.DataFrame([{
+            "Pile": "P{}".format(i+1),
+            "X (mm)": "{:.0f}".format(c[0]),
+            "Y (mm)": "{:.0f}".format(c[1]),
+            "P_i (kN)": "{:.1f}".format(P),
+        } for i, (c, P) in enumerate(
+            zip(coords, results["pile_loads_kN"]))])
+        st.dataframe(rdf, use_container_width=True, hide_index=True)
 
-                with st.expander("All optimization candidates"):
-                    cox, coy = st.columns(2)
-                    cox.markdown("**X-direction**")
-                    cox.dataframe(pd.DataFrame([{
-                        "Bar": o["bar_size"], "n": o["n_bars"],
-                        "As (mm²)": "{:.0f}".format(o["As_provided"]),
-                        "Wt (kg)": "{:.2f}".format(o["weight_kg"]),
-                        "OK": "✅" if o["ok"] else "❌",
-                    } for o in opts_x]), hide_index=True,
-                        use_container_width=True)
-                    coy.markdown("**Y-direction**")
-                    coy.dataframe(pd.DataFrame([{
-                        "Bar": o["bar_size"], "n": o["n_bars"],
-                        "As (mm²)": "{:.0f}".format(o["As_provided"]),
-                        "Wt (kg)": "{:.2f}".format(o["weight_kg"]),
-                        "OK": "✅" if o["ok"] else "❌",
-                    } for o in opts_y]), hide_index=True,
-                        use_container_width=True)
+    with t2:
+        st.plotly_chart(
+            plot_elevation(coords, h_cap, D, col_size, results),
+            use_container_width=True)
+    
+    with t6:
+        st.plotly_chart(
+            plot_3d_view(coords, D, cap_lx, cap_ly,
+                         cap_cx, cap_cy, col_size, h_cap,
+                         cap_polygon, results),
+            use_container_width=True)
+        st.caption(
+            "🖱️ **Drag** to rotate | **Scroll** to zoom | "
+            "**Shift+drag** to pan | **Double-click** to reset view")
+        st.markdown(
+            "**Color legend (Struts):** "
+            "🟢 DCR < 60% | 🟠 60–85% | 🔴 > 85%  &nbsp;&nbsp; "
+            "**Ties** shown as dotted green lines.")
+    
+    with t3:
+        st.markdown("### Required Reinforcement")
+        if results.get("is_3pile_resultant"):
+            tie_x_display = tie_y_display = results["F_tie_res_kN"]
+            note = " (Resultant)"
+        else:
+            tie_x_display = results["F_tie_x_max_kN"]
+            tie_y_display = results["F_tie_y_max_kN"]
+            note = ""
+        req_df = pd.DataFrame([
+            {"Direction": "X"+note,
+             "Tie (kN)":
+                 "{:.1f}".format(tie_x_display),
+             "As req (mm²)":
+                 "{:.0f}".format(results["As_x_required_mm2"]),
+             "Selected": "{}-{}".format(int(x_n), x_bar),
+             "As prov (mm²)":
+                 "{:.0f}".format(x_chk["As_provided"]),
+             "Ratio": "{:.2f}".format(x_chk["ratio"]),
+             "Status": "✅ OK" if x_chk["ok"] else "❌ FAIL"},
+            {"Direction": "Y"+note,
+             "Tie (kN)":
+                 "{:.1f}".format(tie_y_display),
+             "As req (mm²)":
+                 "{:.0f}".format(results["As_y_required_mm2"]),
+             "Selected": "{}-{}".format(int(y_n), y_bar),
+             "As prov (mm²)":
+                 "{:.0f}".format(y_chk["As_provided"]),
+             "Ratio": "{:.2f}".format(y_chk["ratio"]),
+             "Status": "✅ OK" if y_chk["ok"] else "❌ FAIL"},
+        ])
+        st.dataframe(req_df, use_container_width=True,
+                     hide_index=True)
+        if results.get("is_3pile_resultant"):
+            st.info("ฐาน 3 เข็ม: As คำนวณจาก F_res = √(Ftx²+Fty²) = {:.1f} kN → ใส่เหล็กเท่ากันทั้ง X และ Y".format(results["F_tie_res_kN"]))
 
-                st.markdown("### Reinforcement Layout (Plan)")
-                st.plotly_chart(
-                    plot_rebar_layout(coords, D, cap_lx, cap_ly,
-                        cap_cx, cap_cy, col_size, cap_polygon, results,
-                        x_bar, int(x_n), y_bar, int(y_n), x_chk, y_chk),
-                    use_container_width=True)
+        st.markdown("### 🤖 Auto-Optimized Rebar (Min Weight)")
+        col_o1, col_o2, col_o3 = st.columns([2, 2, 1])
+        col_o1.success(
+            "**X-dir optimal:** {}-{} | "
+            "As={:.0f} mm² | Wt={:.2f} kg".format(
+                opt_x["n_bars"], opt_x["bar_size"],
+                opt_x["As_provided"], opt_x["weight_kg"]))
+        col_o2.success(
+            "**Y-dir optimal:** {}-{} | "
+            "As={:.0f} mm² | Wt={:.2f} kg".format(
+                opt_y["n_bars"], opt_y["bar_size"],
+                opt_y["As_provided"], opt_y["weight_kg"]))
+        if col_o3.button("Back To Rebar Selection", use_container_width=True):
+            st.session_state.x_bar = opt_x["bar_size"]
+            st.session_state.x_n = int(opt_x["n_bars"])
+            st.session_state.y_bar = opt_y["bar_size"]
+            st.session_state.y_n = int(opt_y["n_bars"])
+            st.rerun()
 
-            with t4:
-                st.markdown("### Anchorage / Development Length")
-                st.markdown(
-                    "Per **ACI 318-19 §23.8.3** tie reinforcement must "
-                    "develop fy at the point where the centroid of the tie "
-                    "crosses the extended nodal zone (CCT node above pile).")
-                st.code(
-                    "ld  ≈ (fy·ψs / 1.1·λ·√f'c · (cb+Ktr)/db) · db   "
-                    "(ACI 25.4.2.3)\n"
-                    "ldh ≈ (fy / 23·λ·√f'c) · db^1.5                "
-                    "(ACI 25.4.3.1)")
+        with st.expander("All optimization candidates"):
+            cox, coy = st.columns(2)
+            cox.markdown("**X-direction**")
+            cox.dataframe(pd.DataFrame([{
+                "Bar": o["bar_size"], "n": o["n_bars"],
+                "As (mm²)": "{:.0f}".format(o["As_provided"]),
+                "Wt (kg)": "{:.2f}".format(o["weight_kg"]),
+                "OK": "✅" if o["ok"] else "❌",
+            } for o in opts_x]), hide_index=True,
+                use_container_width=True)
+            coy.markdown("**Y-direction**")
+            coy.dataframe(pd.DataFrame([{
+                "Bar": o["bar_size"], "n": o["n_bars"],
+                "As (mm²)": "{:.0f}".format(o["As_provided"]),
+                "Wt (kg)": "{:.2f}".format(o["weight_kg"]),
+                "OK": "✅" if o["ok"] else "❌",
+            } for o in opts_y]), hide_index=True,
+                use_container_width=True)
 
-                anch_df = pd.DataFrame([
-                    {"Direction": "X", "Bar": anch_x["bar_size"],
-                     "ld req (mm)":
-                         "{:.0f}".format(anch_x["ld_required_mm"]),
-                     "ldh req (mm)":
-                         "{:.0f}".format(anch_x["ldh_required_mm"]),
-                     "Avail. straight":
-                         "{:.0f}".format(anch_x["available_straight_mm"]),
-                     "Avail. hook":
-                         "{:.0f}".format(anch_x["available_hook_mm"]),
-                     "Recommended": anch_x["recommended"],
-                     "Status": "✅" if anch_x["ok"] else "❌"},
-                    {"Direction": "Y", "Bar": anch_y["bar_size"],
-                     "ld req (mm)":
-                         "{:.0f}".format(anch_y["ld_required_mm"]),
-                     "ldh req (mm)":
-                         "{:.0f}".format(anch_y["ldh_required_mm"]),
-                     "Avail. straight":
-                         "{:.0f}".format(anch_y["available_straight_mm"]),
-                     "Avail. hook":
-                         "{:.0f}".format(anch_y["available_hook_mm"]),
-                     "Recommended": anch_y["recommended"],
-                     "Status": "✅" if anch_y["ok"] else "❌"},
-                ])
-                st.dataframe(anch_df, use_container_width=True,
-                             hide_index=True)
+        st.markdown("### Reinforcement Layout (Plan)")
+        st.plotly_chart(
+            plot_rebar_layout(coords, D, cap_lx, cap_ly,
+                cap_cx, cap_cy, col_size, cap_polygon, results,
+                x_bar, int(x_n), y_bar, int(y_n), x_chk, y_chk),
+            use_container_width=True)
 
-                if not (anch_x["ok"] and anch_y["ok"]):
-                    st.warning(
-                        "⚠️ Anchorage insufficient. Consider: "
-                        "(a) larger cap dimensions, "
-                        "(b) using 90°/180° standard hooks, "
-                        "(c) headed bars (ACI 25.4.4), "
-                        "or (d) smaller bar diameter.")
+    with t4:
+        st.markdown("### Anchorage / Development Length")
+        st.markdown(
+            "Per **ACI 318-19 §23.8.3** tie reinforcement must "
+            "develop fy at the point where the centroid of the tie "
+            "crosses the extended nodal zone (CCT node above pile).")
+        st.code(
+            "ld  ≈ (fy·ψs / 1.1·λ·√f'c · (cb+Ktr)/db) · db   "
+            "(ACI 25.4.2.3)\n"
+            "ldh ≈ (fy / 23·λ·√f'c) · db^1.5                "
+            "(ACI 25.4.3.1)")
 
-                with st.expander("Assumptions used"):
-                    st.markdown(
-                        "- λ = 1.0 (normal-weight concrete)\n"
-                        "- ψt=1.0 (bottom bars), ψe=1.0 (uncoated), "
-                        "ψg=1.0 (Gr 420), ψr=ψo=ψc=1.0\n"
-                        "- (cb+Ktr)/db = 1.5 (conservative typical value)\n"
-                        "- Available straight = min edge dist + D/4 − cover  # PATCHED: inner face of CCT node\n"
-                        "- Available hook = available straight − cover")
+        anch_df = pd.DataFrame([
+            {"Direction": "X", "Bar": anch_x["bar_size"],
+             "ld req (mm)":
+                 "{:.0f}".format(anch_x["ld_required_mm"]),
+             "ldh req (mm)":
+                 "{:.0f}".format(anch_x["ldh_required_mm"]),
+             "Avail. straight":
+                 "{:.0f}".format(anch_x["available_straight_mm"]),
+             "Avail. hook":
+                 "{:.0f}".format(anch_x["available_hook_mm"]),
+             "Recommended": anch_x["recommended"],
+             "Status": "✅" if anch_x["ok"] else "❌"},
+            {"Direction": "Y", "Bar": anch_y["bar_size"],
+             "ld req (mm)":
+                 "{:.0f}".format(anch_y["ld_required_mm"]),
+             "ldh req (mm)":
+                 "{:.0f}".format(anch_y["ldh_required_mm"]),
+             "Avail. straight":
+                 "{:.0f}".format(anch_y["available_straight_mm"]),
+             "Avail. hook":
+                 "{:.0f}".format(anch_y["available_hook_mm"]),
+             "Recommended": anch_y["recommended"],
+             "Status": "✅" if anch_y["ok"] else "❌"},
+        ])
+        st.dataframe(anch_df, use_container_width=True,
+                     hide_index=True)
 
-            with t7:
-                st.markdown("## 🪟 Top-Face Minimum Reinforcement")
-                st.markdown(
-                    "เหล็กผิวบนของ pile cap ไม่ได้รับแรงดึงจาก STM โดยตรง "
-                    "แต่ ACI 318-19 กำหนดเหล็กขั้นต่ำ **3 เกณฑ์ + 1 spacing check** "
-                    "โดย fy ที่ใช้คำนวณขึ้นอยู่กับ **ขนาดเหล็กที่เลือก** ตามเงื่อนไขจริง")
+        if not (anch_x["ok"] and anch_y["ok"]):
+            st.warning(
+                "⚠️ Anchorage insufficient. Consider: "
+                "(a) larger cap dimensions, "
+                "(b) using 90°/180° standard hooks, "
+                "(c) headed bars (ACI 25.4.4), "
+                "or (d) smaller bar diameter.")
 
-                # ── Bar selector ─────────────────────────────────────
-                st.markdown("### เลือกขนาดเหล็กผิวบน")
-                _bar_options = list(REBAR_DB.keys())  # DB12…DB32
-                _cur_bar = st.session_state.get("top_bar_size", "DB20")
-                _sel_col, _info_col = st.columns([2, 3])
-                with _sel_col:
-                    _chosen_bar = st.selectbox(
-                        "Top bar size",
-                        options=_bar_options,
-                        index=_bar_options.index(_cur_bar),
-                        key="top_bar_size",
-                        help="เหล็ก ≤ DB28 → fy = 390 MPa | DB32 → fy = 490 MPa")
-                with _info_col:
-                    _fy_chosen = REBAR_FY[_chosen_bar]
-                    _fy_capped = min(_fy_chosen, FY_CAP_MPA)
-                    if _fy_chosen > 420:
-                        st.warning(
-                            "**{} : fy = {:.0f} MPa > 420 MPa**  \n"
-                            "ACI §24.4.3.2 → ρ_ts ลดลง  \n"
-                            "ACI §20.2.2.4 → cap ที่ {:.0f} MPa  \n"
-                            "ACI §24.3.2   → spacing limit เพิ่มเติม".format(
-                                _chosen_bar, _fy_chosen, FY_CAP_MPA))
-                    else:
-                        st.info(
-                            "**{} : fy = {:.0f} MPa ≤ 420 MPa**  \n"
-                            "ρ_ts = 0.0018  |  ไม่มี spacing penalty".format(
-                                _chosen_bar, _fy_chosen))
+        with st.expander("Assumptions used"):
+            st.markdown(
+                "- λ = 1.0 (normal-weight concrete)\n"
+                "- ψt=1.0 (bottom bars), ψe=1.0 (uncoated), "
+                "ψg=1.0 (Gr 420), ψr=ψo=ψc=1.0\n"
+                "- (cb+Ktr)/db = 1.5 (conservative typical value)\n"
+                "- Available straight = min edge dist + D/4 − cover  # PATCHED: inner face of CCT node\n"
+                "- Available hook = available straight − cover")
 
-                # ── Recompute with selected bar ───────────────────────
-                tr = compute_top_reinforcement(
-                    lx_mm=cap_lx, ly_mm=cap_ly,
-                    h_cap_mm=h_cap, fy_mpa=fy, fc_mpa=fc,
-                    cover_mm=cover, top_bar_size=_chosen_bar)
+    with t7:
+        st.markdown("## 🪟 Top-Face Minimum Reinforcement")
+        st.markdown(
+            "เหล็กผิวบนของ pile cap ไม่ได้รับแรงดึงจาก STM โดยตรง "
+            "แต่ ACI 318-19 กำหนดเหล็กขั้นต่ำ **3 เกณฑ์ + 1 spacing check** "
+            "โดย fy ที่ใช้คำนวณขึ้นอยู่กับ **ขนาดเหล็กที่เลือก** ตามเงื่อนไขจริง")
 
-                # ── Code Reference Expander ──────────────────────────
-                with st.expander("📖 Code Basis (ACI 318-19) — คลิกเพื่อดูรายละเอียด"):
-                    st.markdown("""
+        # ── Bar selector ─────────────────────────────────────
+        st.markdown("### เลือกขนาดเหล็กผิวบน")
+        _bar_options = list(REBAR_DB.keys())  # DB12…DB32
+        _cur_bar = st.session_state.get("top_bar_size", "DB20")
+        _sel_col, _info_col = st.columns([2, 3])
+        with _sel_col:
+            _chosen_bar = st.selectbox(
+                "Top bar size",
+                options=_bar_options,
+                index=_bar_options.index(_cur_bar),
+                key="top_bar_size",
+                help="เหล็ก ≤ DB28 → fy = 390 MPa | DB32 → fy = 490 MPa")
+        with _info_col:
+            _fy_chosen = REBAR_FY[_chosen_bar]
+            _fy_capped = min(_fy_chosen, FY_CAP_MPA)
+            if _fy_chosen > 420:
+                st.warning(
+                    "**{} : fy = {:.0f} MPa > 420 MPa**  \n"
+                    "ACI §24.4.3.2 → ρ_ts ลดลง  \n"
+                    "ACI §20.2.2.4 → cap ที่ {:.0f} MPa  \n"
+                    "ACI §24.3.2   → spacing limit เพิ่มเติม".format(
+                        _chosen_bar, _fy_chosen, FY_CAP_MPA))
+            else:
+                st.info(
+                    "**{} : fy = {:.0f} MPa ≤ 420 MPa**  \n"
+                    "ρ_ts = 0.0018  |  ไม่มี spacing penalty".format(
+                        _chosen_bar, _fy_chosen))
+
+        # ── Recompute with selected bar ───────────────────────
+        tr = compute_top_reinforcement(
+            lx_mm=cap_lx, ly_mm=cap_ly,
+            h_cap_mm=h_cap, fy_mpa=fy, fc_mpa=fc,
+            cover_mm=cover, top_bar_size=_chosen_bar)
+
+        # ── Code Reference Expander ──────────────────────────
+        with st.expander("📖 Code Basis (ACI 318-19) — คลิกเพื่อดูรายละเอียด"):
+            st.markdown("""
 **Check A — Temperature & Shrinkage  §24.4.3.2 Table 24.4.3.2**
 ```
 ρ_ts = 0.0018              fy_d ≤ 420 MPa
@@ -668,122 +676,122 @@ As_req = 0.003 × b × h_cap
 ```
 §24.4.3.3 : s ≤ min(3h, 450 mm)
 §24.3.2   : s ≤ min(380×(280/fs), 300×(280/fs))  where fs = (2/3)fy_d
-            (only becomes active when fy_d > 420 MPa)
+    (only becomes active when fy_d > 420 MPa)
 §20.2.2.4 : fy_d used in design capped at 550 MPa
 ```
-                    """)
+            """)
 
-                # ── Numeric Results ──────────────────────────────────
-                st.markdown("### ผลการคำนวณ  (fy_d = {:.0f} MPa — {})".format(
-                    tr["fy_design_mpa"], tr["fy_note"]))
+        # ── Numeric Results ──────────────────────────────────
+        st.markdown("### ผลการคำนวณ  (fy_d = {:.0f} MPa — {})".format(
+            tr["fy_design_mpa"], tr["fy_note"]))
 
-                res_df = pd.DataFrame([
-                    {"Check": "A: T&S §24.4.3.2",
-                     "ρ used": "{:.4f}".format(tr["rho_ts"]),
-                     "As_X req (mm²)": "{:.0f}".format(tr["As_ts_x_mm2"]),
-                     "As_Y req (mm²)": "{:.0f}".format(tr["As_ts_y_mm2"])},
-                    {"Check": "B: Min-Flex §9.6.1.2",
-                     "ρ used": "{:.4f}".format(tr["rho_flex"]),
-                     "As_X req (mm²)": "{:.0f}".format(tr["As_flex_x_mm2"]),
-                     "As_Y req (mm²)": "{:.0f}".format(tr["As_flex_y_mm2"])},
-                    {"Check": "C: Crack-ctrl §23.5.1",
-                     "ρ used": "{:.4f}".format(tr["rho_cc"]),
-                     "As_X req (mm²)": "{:.0f}".format(tr["As_cc_x_mm2"]),
-                     "As_Y req (mm²)": "{:.0f}".format(tr["As_cc_y_mm2"])},
-                ])
-                st.dataframe(res_df, use_container_width=True, hide_index=True)
+        res_df = pd.DataFrame([
+            {"Check": "A: T&S §24.4.3.2",
+             "ρ used": "{:.4f}".format(tr["rho_ts"]),
+             "As_X req (mm²)": "{:.0f}".format(tr["As_ts_x_mm2"]),
+             "As_Y req (mm²)": "{:.0f}".format(tr["As_ts_y_mm2"])},
+            {"Check": "B: Min-Flex §9.6.1.2",
+             "ρ used": "{:.4f}".format(tr["rho_flex"]),
+             "As_X req (mm²)": "{:.0f}".format(tr["As_flex_x_mm2"]),
+             "As_Y req (mm²)": "{:.0f}".format(tr["As_flex_y_mm2"])},
+            {"Check": "C: Crack-ctrl §23.5.1",
+             "ρ used": "{:.4f}".format(tr["rho_cc"]),
+             "As_X req (mm²)": "{:.0f}".format(tr["As_cc_x_mm2"]),
+             "As_Y req (mm²)": "{:.0f}".format(tr["As_cc_y_mm2"])},
+        ])
+        st.dataframe(res_df, use_container_width=True, hide_index=True)
 
-                c1, c2 = st.columns(2)
-                c1.success(
-                    "**X-dir  As_top = {:.0f} mm²**  \n"
-                    "Governs: {}".format(
-                        tr["As_top_x_mm2"], tr["governs_x"]))
-                c2.success(
-                    "**Y-dir  As_top = {:.0f} mm²**  \n"
-                    "Governs: {}".format(
-                        tr["As_top_y_mm2"], tr["governs_y"]))
+        c1, c2 = st.columns(2)
+        c1.success(
+            "**X-dir  As_top = {:.0f} mm²**  \n"
+            "Governs: {}".format(
+                tr["As_top_x_mm2"], tr["governs_x"]))
+        c2.success(
+            "**Y-dir  As_top = {:.0f} mm²**  \n"
+            "Governs: {}".format(
+                tr["As_top_y_mm2"], tr["governs_y"]))
 
-                # ── Spacing Check ────────────────────────────────────
-                st.markdown("### ตรวจสอบระยะห่างสูงสุด")
-                _s_ts   = tr["s_ts_max_mm"]
-                _s_cr   = tr["s_crack_mm"]
-                _s_gov  = tr["s_max_top_mm"]
-                _fs     = tr["fs_service_mpa"]
-                spac_df = pd.DataFrame([
-                    {"เกณฑ์": "§24.4.3.3  min(3h, 450)",
-                     "s_max (mm)": "{:.0f}".format(_s_ts),
-                     "Active": "✅ เสมอ"},
-                    {"เกณฑ์": "§24.3.2  crack-width  (fs={:.0f} MPa)".format(_fs),
-                     "s_max (mm)": "{:.0f}".format(_s_cr),
-                     "Active": "⚠️ fy > 420" if tr["fy_design_mpa"] > 420
-                               else "— (fy ≤ 420)"},
-                ])
-                st.dataframe(spac_df, use_container_width=True, hide_index=True)
-                if tr["fy_design_mpa"] > 420:
-                    st.warning(
-                        "**s_max governing = {:.0f} mm** "
-                        "(§24.3.2 controls เนื่องจาก fy = {:.0f} MPa)".format(
-                            _s_gov, tr["fy_design_mpa"]))
-                else:
-                    st.info(
-                        "**s_max governing = {:.0f} mm** "
-                        "(§24.4.3.3 controls)".format(_s_gov))
+        # ── Spacing Check ────────────────────────────────────
+        st.markdown("### ตรวจสอบระยะห่างสูงสุด")
+        _s_ts   = tr["s_ts_max_mm"]
+        _s_cr   = tr["s_crack_mm"]
+        _s_gov  = tr["s_max_top_mm"]
+        _fs     = tr["fs_service_mpa"]
+        spac_df = pd.DataFrame([
+            {"เกณฑ์": "§24.4.3.3  min(3h, 450)",
+             "s_max (mm)": "{:.0f}".format(_s_ts),
+             "Active": "✅ เสมอ"},
+            {"เกณฑ์": "§24.3.2  crack-width  (fs={:.0f} MPa)".format(_fs),
+             "s_max (mm)": "{:.0f}".format(_s_cr),
+             "Active": "⚠️ fy > 420" if tr["fy_design_mpa"] > 420
+                       else "— (fy ≤ 420)"},
+        ])
+        st.dataframe(spac_df, use_container_width=True, hide_index=True)
+        if tr["fy_design_mpa"] > 420:
+            st.warning(
+                "**s_max governing = {:.0f} mm** "
+                "(§24.3.2 controls เนื่องจาก fy = {:.0f} MPa)".format(
+                    _s_gov, tr["fy_design_mpa"]))
+        else:
+            st.info(
+                "**s_max governing = {:.0f} mm** "
+                "(§24.4.3.3 controls)".format(_s_gov))
 
-                # ── Bar Suggestions ──────────────────────────────────
-                st.markdown("### แนะนำขนาดเหล็กผิวบน  (Bar = {})".format(
-                    _chosen_bar))
-                _top_bars = ("DB12", "DB16", "DB20", "DB25", "DB28", "DB32")
-                _top_sx = suggest_rebar(tr["As_top_x_mm2"],
-                                        preferred=_top_bars)
-                _top_sy = suggest_rebar(tr["As_top_y_mm2"],
-                                        preferred=_top_bars)
+        # ── Bar Suggestions ──────────────────────────────────
+        st.markdown("### แนะนำขนาดเหล็กผิวบน  (Bar = {})".format(
+            _chosen_bar))
+        _top_bars = ("DB12", "DB16", "DB20", "DB25", "DB28", "DB32")
+        _top_sx = suggest_rebar(tr["As_top_x_mm2"],
+                                preferred=_top_bars)
+        _top_sy = suggest_rebar(tr["As_top_y_mm2"],
+                                preferred=_top_bars)
 
-                def _spac_check(n, width, s_max):
-                    """Estimate actual spacing and flag if over limit."""
-                    if n <= 1:
-                        return "—"
-                    s_act = (width - 2*cover) / (n - 1)
-                    ok = s_act <= s_max
-                    return "{:.0f} mm {}".format(s_act, "✅" if ok else "❌ > {:.0f}".format(s_max))
+        def _spac_check(n, width, s_max):
+            """Estimate actual spacing and flag if over limit."""
+            if n <= 1:
+                return "—"
+            s_act = (width - 2*cover) / (n - 1)
+            ok = s_act <= s_max
+            return "{:.0f} mm {}".format(s_act, "✅" if ok else "❌ > {:.0f}".format(s_max))
 
-                sug_df = pd.DataFrame([
-                    {"ทิศทาง": "X", "ขนาด": sz,
-                     "fy (MPa)": "{:.0f}".format(REBAR_FY.get(sz, fy)),
-                     "จำนวน (เส้น)": n,
-                     "As prov (mm²)": "{:.0f}".format(a),
-                     "As req (mm²)": "{:.0f}".format(tr["As_top_x_mm2"]),
-                     "Ratio": "{:.2f}".format(
-                         a / tr["As_top_x_mm2"] if tr["As_top_x_mm2"] else 0),
-                     "Spacing (est.)": _spac_check(n, cap_ly, _s_gov),
-                     "Status": "✅" if a >= tr["As_top_x_mm2"] else "❌"}
-                    for sz, n, a in _top_sx
-                ] + [
-                    {"ทิศทาง": "Y", "ขนาด": sz,
-                     "fy (MPa)": "{:.0f}".format(REBAR_FY.get(sz, fy)),
-                     "จำนวน (เส้น)": n,
-                     "As prov (mm²)": "{:.0f}".format(a),
-                     "As req (mm²)": "{:.0f}".format(tr["As_top_y_mm2"]),
-                     "Ratio": "{:.2f}".format(
-                         a / tr["As_top_y_mm2"] if tr["As_top_y_mm2"] else 0),
-                     "Spacing (est.)": _spac_check(n, cap_lx, _s_gov),
-                     "Status": "✅" if a >= tr["As_top_y_mm2"] else "❌"}
-                    for sz, n, a in _top_sy
-                ])
-                st.dataframe(sug_df, use_container_width=True,
-                             hide_index=True)
+        sug_df = pd.DataFrame([
+            {"ทิศทาง": "X", "ขนาด": sz,
+             "fy (MPa)": "{:.0f}".format(REBAR_FY.get(sz, fy)),
+             "จำนวน (เส้น)": n,
+             "As prov (mm²)": "{:.0f}".format(a),
+             "As req (mm²)": "{:.0f}".format(tr["As_top_x_mm2"]),
+             "Ratio": "{:.2f}".format(
+                 a / tr["As_top_x_mm2"] if tr["As_top_x_mm2"] else 0),
+             "Spacing (est.)": _spac_check(n, cap_ly, _s_gov),
+             "Status": "✅" if a >= tr["As_top_x_mm2"] else "❌"}
+            for sz, n, a in _top_sx
+        ] + [
+            {"ทิศทาง": "Y", "ขนาด": sz,
+             "fy (MPa)": "{:.0f}".format(REBAR_FY.get(sz, fy)),
+             "จำนวน (เส้น)": n,
+             "As prov (mm²)": "{:.0f}".format(a),
+             "As req (mm²)": "{:.0f}".format(tr["As_top_y_mm2"]),
+             "Ratio": "{:.2f}".format(
+                 a / tr["As_top_y_mm2"] if tr["As_top_y_mm2"] else 0),
+             "Spacing (est.)": _spac_check(n, cap_lx, _s_gov),
+             "Status": "✅" if a >= tr["As_top_y_mm2"] else "❌"}
+            for sz, n, a in _top_sy
+        ])
+        st.dataframe(sug_df, use_container_width=True,
+                     hide_index=True)
 
-                # ── Plan View Diagram ────────────────────────────────
-                st.markdown("### แผนผังเหล็กผิวบน (Plan View)")
-                st.plotly_chart(
-                    plot_top_rebar_layout(
-                        coords, D, cap_lx, cap_ly,
-                        cap_cx, cap_cy, col_size, cap_polygon,
-                        tr, cover_mm=cover),
-                    use_container_width=True)
+        # ── Plan View Diagram ────────────────────────────────
+        st.markdown("### แผนผังเหล็กผิวบน (Plan View)")
+        st.plotly_chart(
+            plot_top_rebar_layout(
+                coords, D, cap_lx, cap_ly,
+                cap_cx, cap_cy, col_size, cap_polygon,
+                tr, cover_mm=cover),
+            use_container_width=True)
 
-                # ── Placement Guide ──────────────────────────────────
-                st.markdown("### ตำแหน่งและรูปแบบการวาง")
-                st.markdown("""
+        # ── Placement Guide ──────────────────────────────────
+        st.markdown("### ตำแหน่งและรูปแบบการวาง")
+        st.markdown("""
 | ตำแหน่ง | รายละเอียด | อ้างอิง ACI |
 |---|---|---|
 | **ผิวบน แนว X** | วางแนวนอน กระจายตลอดความกว้าง ly | §24.4.3.2, §23.5.1 |
@@ -793,110 +801,110 @@ As_req = 0.003 × b × h_cap
 | **ต่อทับ** | ≥ 1.3 × ld (Class B splice) | §25.5.2 |
 | **fy ใช้ออกแบบ** | ≤DB28 → 390 MPa, DB32 → 490 MPa, cap 550 MPa | §20.2.2.4 |
 """)
-                st.info(
-                    "💡 **หมายเหตุ:** กรณีเลือก DB32 (fy=490 MPa) "
-                    "ระยะห่างเหล็กถูกจำกัดเพิ่มเติมโดย §24.3.2 "
-                    "ซึ่งอาจทำให้ต้องเพิ่มจำนวนเหล็กแม้ว่า As จะเพียงพอแล้ว")
+        st.info(
+            "💡 **หมายเหตุ:** กรณีเลือก DB32 (fy=490 MPa) "
+            "ระยะห่างเหล็กถูกจำกัดเพิ่มเติมโดย §24.3.2 "
+            "ซึ่งอาจทำให้ต้องเพิ่มจำนวนเหล็กแม้ว่า As จะเพียงพอแล้ว")
 
-            with t5:
-                st.markdown("### Strut Forces")
-                rows = []
-                for i, s in enumerate(results["struts"]):
-                    rows.append({
-                        "Strut": "S{}".format(i+1),
-                        "X (mm)": round(s["coord"][0],1), "Y (mm)": round(s["coord"][1],1),
-                        "P_i (kN)": round(s["P_i_kN"], 1),
-                        "L (mm)": round(s["L_strut"], 0),
-                        "θ (°)": round(s["theta_deg"], 1),
-                        "F_strut (kN)": round(s["F_strut_kN"], 1),
-                    })
-                st.dataframe(pd.DataFrame(rows),
-                             use_container_width=True, hide_index=True)
+    with t5:
+        st.markdown("### Strut Forces")
+        rows = []
+        for i, s in enumerate(results["struts"]):
+            rows.append({
+                "Strut": "S{}".format(i+1),
+                "X (mm)": round(s["coord"][0],1), "Y (mm)": round(s["coord"][1],1),
+                "P_i (kN)": round(s["P_i_kN"], 1),
+                "L (mm)": round(s["L_strut"], 0),
+                "θ (°)": round(s["theta_deg"], 1),
+                "F_strut (kN)": round(s["F_strut_kN"], 1),
+            })
+        st.dataframe(pd.DataFrame(rows),
+                     use_container_width=True, hide_index=True)
 
-                st.markdown("### Tie Design Forces (for reinforcement)")
-                tie_rows = [
-                    {"Direction": "X",
-                     "Tie force (kN)": "{:.1f}".format(results["F_tie_x_max_kN"]),
-                     "Formula": "Σ Pi·|x|/d (controlling side)"},
-                    {"Direction": "Y",
-                     "Tie force (kN)": "{:.1f}".format(results["F_tie_y_max_kN"]),
-                     "Formula": "Σ Pi·|y|/d (controlling side)"},
-                ]
-                if results.get("is_3pile_resultant"):
-                    tie_rows.append({
-                        "Direction": "Resultant (3-pile)",
-                        "Tie force (kN)": "{:.1f}".format(results["F_tie_res_kN"]),
-                        "Formula": "√(Ftx²+Fty²) — used for As_x = As_y"
-                    })
-                tie_df = pd.DataFrame(tie_rows)
-                st.dataframe(tie_df, use_container_width=True, hide_index=True)
-                if results.get("is_3pile_resultant"):
-                    st.info("ฐาน 3 เข็ม: ใช้แรงลัพธ์ F_res เพื่อให้เหล็กเท่ากันทั้งสองทิศ ไม่ขึ้นกับการหมุนพิกัด")
-                st.caption("หมายเหตุ: ตาราง Strut แสดงแรงอัดในแต่ละ strut เท่านั้น ส่วนแรงดึงที่ใช้ออกแบบเหล็กคือค่า Tie ด้านบน")
+        st.markdown("### Tie Design Forces (for reinforcement)")
+        tie_rows = [
+            {"Direction": "X",
+             "Tie force (kN)": "{:.1f}".format(results["F_tie_x_max_kN"]),
+             "Formula": "Σ Pi·|x|/d (controlling side)"},
+            {"Direction": "Y",
+             "Tie force (kN)": "{:.1f}".format(results["F_tie_y_max_kN"]),
+             "Formula": "Σ Pi·|y|/d (controlling side)"},
+        ]
+        if results.get("is_3pile_resultant"):
+            tie_rows.append({
+                "Direction": "Resultant (3-pile)",
+                "Tie force (kN)": "{:.1f}".format(results["F_tie_res_kN"]),
+                "Formula": "√(Ftx²+Fty²) — used for As_x = As_y"
+            })
+        tie_df = pd.DataFrame(tie_rows)
+        st.dataframe(tie_df, use_container_width=True, hide_index=True)
+        if results.get("is_3pile_resultant"):
+            st.info("ฐาน 3 เข็ม: ใช้แรงลัพธ์ F_res เพื่อให้เหล็กเท่ากันทั้งสองทิศ ไม่ขึ้นกับการหมุนพิกัด")
+        st.caption("หมายเหตุ: ตาราง Strut แสดงแรงอัดในแต่ละ strut เท่านั้น ส่วนแรงดึงที่ใช้ออกแบบเหล็กคือค่า Tie ด้านบน")
 
-                st.markdown("### Capacity Checks")
-                _bn = results.get("bn_pile", 0.60)
-                _node_lbl = "CTT βn={:.2f}".format(_bn) if results["n_piles"] >= 4 else "CCT βn={:.2f}".format(_bn)
-                ck = pd.DataFrame([
-                    {"Check": "Strut compression",
-                     "Capacity (kN)":
-                         "{:.0f}".format(results["phi_Fns_kN"]),
-                     "Demand (kN)":
-                         "{:.0f}".format(results["F_strut_max_kN"]),
-                     "DCR": "{:.2f}".format(results["strut_DCR"]),
-                     "Status": "✅" if results["strut_DCR"] <= 1
-                               else "❌"},
-                    {"Check": "Pile bearing ({})".format(_node_lbl),
-                     "Capacity (kN)":
-                         "{:.0f}".format(results["phi_Pn_bearing_kN"]),
-                     "Demand (kN)":
-                         "{:.0f}".format(results["P_max_kN"]),
-                     "DCR": "{:.2f}".format(results["bearing_DCR"]),
-                     "Status": "✅" if results["bearing_DCR"] <= 1
-                               else "❌"},
-                    {"Check": "Column bearing (CCC)",
-                     "Capacity (kN)":
-                         "{:.0f}".format(results["phi_Pn_column_kN"]),
-                     "Demand (kN)":
-                         "{:.0f}".format(results["Pu_kN"]),
-                     "DCR": "{:.2f}".format(results["column_DCR"]),
-                     "Status": "✅" if results["column_DCR"] <= 1
-                               else "❌"},
-                    {"Check": "Strut angle ≥25° ({:.1f}°)".format(
-                        results["min_strut_angle_deg"]),
-                     "Capacity (kN)": "-", "Demand (kN)": "-", "DCR": "-",
-                     "Status": "✅" if results["angle_OK"] else "❌"},
-                ])
-                st.dataframe(ck, use_container_width=True, hide_index=True)
+        st.markdown("### Capacity Checks")
+        _bn = results.get("bn_pile", 0.60)
+        _node_lbl = "CTT βn={:.2f}".format(_bn) if results["n_piles"] >= 4 else "CCT βn={:.2f}".format(_bn)
+        ck = pd.DataFrame([
+            {"Check": "Strut compression",
+             "Capacity (kN)":
+                 "{:.0f}".format(results["phi_Fns_kN"]),
+             "Demand (kN)":
+                 "{:.0f}".format(results["F_strut_max_kN"]),
+             "DCR": "{:.2f}".format(results["strut_DCR"]),
+             "Status": "✅" if results["strut_DCR"] <= 1
+                       else "❌"},
+            {"Check": "Pile bearing ({})".format(_node_lbl),
+             "Capacity (kN)":
+                 "{:.0f}".format(results["phi_Pn_bearing_kN"]),
+             "Demand (kN)":
+                 "{:.0f}".format(results["P_max_kN"]),
+             "DCR": "{:.2f}".format(results["bearing_DCR"]),
+             "Status": "✅" if results["bearing_DCR"] <= 1
+                       else "❌"},
+            {"Check": "Column bearing (CCC)",
+             "Capacity (kN)":
+                 "{:.0f}".format(results["phi_Pn_column_kN"]),
+             "Demand (kN)":
+                 "{:.0f}".format(results["Pu_kN"]),
+             "DCR": "{:.2f}".format(results["column_DCR"]),
+             "Status": "✅" if results["column_DCR"] <= 1
+                       else "❌"},
+            {"Check": "Strut angle ≥25° ({:.1f}°)".format(
+                results["min_strut_angle_deg"]),
+             "Capacity (kN)": "-", "Demand (kN)": "-", "DCR": "-",
+             "Status": "✅" if results["angle_OK"] else "❌"},
+        ])
+        st.dataframe(ck, use_container_width=True, hide_index=True)
 
-            # Export Report
-            st.divider()
-            st.subheader("📄 Export Report")
-            inputs_dict = {
-                "fc": fc, "fy": fy, "cover": cover,
-                "Pu": Pu, "Mux": Mux, "Muy": Muy,
-                "D": D, "h_cap": h_cap, "col_size": col_size,
-                "coords": coords,
-                "cap_lx": cap_lx, "cap_ly": cap_ly,
-                "cap_cx": cap_cx, "cap_cy": cap_cy,
-                "cap_polygon": cap_polygon,
-                "shape_label": shape_label,
-            }
-            try:
-                docx_buf = generate_report(
-                    inputs_dict, results, x_chk, y_chk, pairs,
-                    anch_x=anch_x, anch_y=anch_y,
-                    opt_x=opt_x, opt_y=opt_y,
-                    top_rebar=top_rebar)
-                st.download_button(
-                    "⬇️ Download Word Report (.docx)",
-                    data=docx_buf,
-                    file_name="pile_cap_design_report.docx",
-                    mime=("application/vnd.openxmlformats-officedocument."
-                          "wordprocessingml.document"),
-                    use_container_width=True, type="secondary")
-            except Exception as exc:
-                st.error("Report generation failed: {}".format(exc))
+    # Export Report
+    st.divider()
+    st.subheader("📄 Export Report")
+    inputs_dict = {
+        "fc": fc, "fy": fy, "cover": cover,
+        "Pu": Pu, "Mux": Mux, "Muy": Muy,
+        "D": D, "h_cap": h_cap, "col_size": col_size,
+        "coords": coords,
+        "cap_lx": cap_lx, "cap_ly": cap_ly,
+        "cap_cx": cap_cx, "cap_cy": cap_cy,
+        "cap_polygon": cap_polygon,
+        "shape_label": shape_label,
+    }
+    try:
+        docx_buf = generate_report(
+            inputs_dict, results, x_chk, y_chk, pairs,
+            anch_x=anch_x, anch_y=anch_y,
+            opt_x=opt_x, opt_y=opt_y,
+            top_rebar=top_rebar)
+        st.download_button(
+            "⬇️ Download Word Report (.docx)",
+            data=docx_buf,
+            file_name="pile_cap_design_report.docx",
+            mime=("application/vnd.openxmlformats-officedocument."
+                  "wordprocessingml.document"),
+            use_container_width=True, type="secondary")
+    except Exception as exc:
+        st.error("Report generation failed: {}".format(exc))
 else:
     st.info("Set inputs in sidebar and click **Calculate STM**. "
             "Layout preview & pile reactions update live.")
