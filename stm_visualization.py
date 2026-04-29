@@ -282,9 +282,9 @@ def _box_mesh(x0, x1, y0, y1, z0, z1, color, opacity=0.4):
     x = [x0, x1, x1, x0, x0, x1, x1, x0]
     y = [y0, y0, y1, y1, y0, y0, y1, y1]
     z = [z0, z0, z0, z0, z1, z1, z1, z1]
-    i = [0, 0, 0, 1, 1, 2, 4, 4, 4, 5, 5, 6]
-    j = [1, 2, 4, 2, 5, 3, 5, 6, 7, 6, 1, 7]
-    k = [2, 3, 7, 5, 6, 7, 6, 7, 0, 1, 6, 3]
+    i = [0, 0, 4, 4, 0, 0, 2, 2, 0, 0, 1, 1]
+    j = [1, 2, 5, 6, 1, 3, 3, 7, 3, 7, 2, 6]
+    k = [2, 3, 6, 7, 5, 4, 7, 6, 7, 4, 6, 5]
     return go.Mesh3d(x=x, y=y, z=z, i=i, j=j, k=k,
                      color=color, opacity=opacity,
                      flatshading=True, hoverinfo="skip",
