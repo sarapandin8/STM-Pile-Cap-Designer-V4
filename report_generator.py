@@ -95,9 +95,6 @@ def _plot_plan(coords, D, lx, ly, cx, cy, col_size, cap_polygon, results):
     return buf
 
 
-    return buf
-
-
 def _plot_bottom_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
                            cap_polygon, x_bar, x_n, y_bar, y_n,
                            x_chk, y_chk, cover_mm=75):
