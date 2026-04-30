@@ -119,6 +119,8 @@ def plot_layout_preview(coords, D, lx, ly, cx=0.0, cy=0.0,
                            showarrow=False,
                            font={"size": 10, "color": "#0277BD"})
 
+    pad = max(lx, ly)*0.15 + 300
+
     # ── Center axes (crosshair at origin) ──────────────────────
     # ความยาวแกน = ครึ่งหนึ่งของฐานรากแต่ละด้าน พอดีกับขอบ cap
     _ax_half_x = lx / 2
