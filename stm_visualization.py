@@ -119,8 +119,46 @@ def plot_layout_preview(coords, D, lx, ly, cx=0.0, cy=0.0,
                            showarrow=False,
                            font={"size": 10, "color": "#0277BD"})
 
+    # ── Center axes (crosshair at origin) ──────────────────────
     pad = max(lx, ly)*0.15 + 300
-        
+    _axis_len = max(lx, ly) / 2 + pad * 0.7
+    _AXIS_COLOR = "#E53935"   # red for X
+    _AXIS_COLOR_Y = "#1E88E5" # blue for Y
+    # X-axis line
+    fig.add_shape(type="line",
+        x0=-_axis_len, y0=0, x1=_axis_len, y1=0,
+        line={"color": _AXIS_COLOR, "width": 1.2, "dash": "dot"},
+        layer="below")
+    # Y-axis line
+    fig.add_shape(type="line",
+        x0=0, y0=-_axis_len, x1=0, y1=_axis_len,
+        line={"color": _AXIS_COLOR_Y, "width": 1.2, "dash": "dot"},
+        layer="below")
+    # Arrow tips (small triangles via annotation arrowhead)
+    fig.add_annotation(
+        x=_axis_len, y=0, ax=-_axis_len, ay=0,
+        xref="x", yref="y", axref="x", ayref="y",
+        text="<b>X</b>", showarrow=True,
+        arrowhead=2, arrowsize=1.2, arrowwidth=1.5,
+        arrowcolor=_AXIS_COLOR,
+        font={"color": _AXIS_COLOR, "size": 11},
+        xanchor="left")
+    fig.add_annotation(
+        x=0, y=_axis_len, ax=0, ay=-_axis_len,
+        xref="x", yref="y", axref="x", ayref="y",
+        text="<b>Y</b>", showarrow=True,
+        arrowhead=2, arrowsize=1.2, arrowwidth=1.5,
+        arrowcolor=_AXIS_COLOR_Y,
+        font={"color": _AXIS_COLOR_Y, "size": 11},
+        yanchor="bottom")
+    # Origin dot
+    fig.add_trace(go.Scatter(
+        x=[0], y=[0], mode="markers",
+        marker={"symbol": "circle", "size": 6,
+                "color": "#333333", "line": {"width": 1.5, "color": "white"}},
+        hoverinfo="text", text=["Origin (0, 0)"],
+        showlegend=False))
+
     fig.update_layout(
         title="Pile Cap Layout - {} ({} piles)".format(shape, len(coords)),
         xaxis={"scaleanchor": "y", "scaleratio": 1, "title": "X (mm)",
