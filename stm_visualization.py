@@ -123,8 +123,9 @@ def plot_layout_preview(coords, D, lx, ly, cx=0.0, cy=0.0,
 
     # ── Center axes (crosshair at origin) ──────────────────────
     # ความยาวแกน = ครึ่งหนึ่งของฐานรากแต่ละด้าน พอดีกับขอบ cap
-    _ax_half_x = lx / 2
-    _ax_half_y = ly / 2
+    _offset = max(lx, ly) * 0.06 + 80   # ระยะขยับออกนอก cap
+    _ax_half_x = lx / 2 + _offset
+    _ax_half_y = ly / 2 + _offset
     _AXIS_COLOR_X = "#E53935"   # red for X
     _AXIS_COLOR_Y = "#1E88E5"   # blue for Y
     # X-axis line
