@@ -207,7 +207,9 @@ def plot_elevation(coords, h_cap, D, col_size, results):
         fig.add_trace(go.Scatter(
             x=[min(xs), max(xs)], y=[pwid/2, pwid/2], mode="lines",
             line={"color": TIE, "width": 5}, hoverinfo="text",
-            text=["Tie F={:.1f}kN".format(results["F_tie_max_kN"])]*2,
+            text=["Tie F={:.1f}kN".format(
+                max(results.get("F_tie_x_max_kN", 0),
+                    results.get("F_tie_y_max_kN", 0)))]*2,
             showlegend=False))
 
     fig.update_layout(
@@ -362,30 +364,7 @@ def _cylinder_mesh(cx, cy, z0, z1, r, color, opacity=0.85, lighting=None, n=24):
     return go.Mesh3d(**kwargs)
 
 
-def _cylinder_mesh(cx, cy, z0, z1, r, color, opacity=0.85, n=24):
-    """Vertical cylinder mesh."""
-    import math as _m
-    xs, ys, zs = [], [], []
-    for k_ in range(n):
-        a = 2*_m.pi*k_/n
-        xs.append(cx + r*_m.cos(a)); ys.append(cy + r*_m.sin(a))
-        zs.append(z0)
-    for k_ in range(n):
-        a = 2*_m.pi*k_/n
-        xs.append(cx + r*_m.cos(a)); ys.append(cy + r*_m.sin(a))
-        zs.append(z1)
-    xs += [cx, cx]; ys += [cy, cy]; zs += [z0, z1]
-    bc, tc = 2*n, 2*n+1
-    i, j, k = [], [], []
-    for a in range(n):
-        b = (a+1) % n
-        i += [bc]; j += [b]; k += [a]
-        i += [tc]; j += [n+a]; k += [n+b]
-        i += [a, a]; j += [b, n+b]; k += [n+b, n+a]
-    return go.Mesh3d(x=xs, y=ys, z=zs, i=i, j=j, k=k,
-                     color=color, opacity=opacity,
-                     flatshading=True, hoverinfo="skip",
-                     showlegend=False)
+
 
 
 def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
