@@ -138,23 +138,33 @@ def plot_layout_preview(coords, D, lx, ly, cx=0.0, cy=0.0,
         x0=0, y0=-_ax_half_y, x1=0, y1=_ax_half_y,
         line={"color": _AXIS_COLOR_Y, "width": 1.5, "dash": "dot"},
         layer="below")
-    # Arrow + label ที่ปลายแกน ใช้ pixel-offset (ax, ay) เพื่อไม่ให้ label หาย
+    # Arrow + label แยกกัน: arrow ไม่มีข้อความ / label วางที่ปลายลูกศรพอดี
+    # X arrow
     fig.add_annotation(
         x=_ax_half_x, y=0, xref="x", yref="y",
         ax=-30, ay=0,
-        text="<b>X</b>", showarrow=True,
+        text="", showarrow=True,
         arrowhead=2, arrowsize=1.2, arrowwidth=1.5,
-        arrowcolor=_AXIS_COLOR_X,
-        font={"color": _AXIS_COLOR_X, "size": 11},
-        xanchor="left")
+        arrowcolor=_AXIS_COLOR_X)
+    # X label ที่ปลายหัวลูกศร
+    fig.add_annotation(
+        x=_ax_half_x, y=0, xref="x", yref="y",
+        text="<b>X</b>", showarrow=False,
+        font={"color": _AXIS_COLOR_X, "size": 12},
+        xanchor="left", xshift=8)
+    # Y arrow
     fig.add_annotation(
         x=0, y=_ax_half_y, xref="x", yref="y",
         ax=0, ay=30,
-        text="<b>Y</b>", showarrow=True,
+        text="", showarrow=True,
         arrowhead=2, arrowsize=1.2, arrowwidth=1.5,
-        arrowcolor=_AXIS_COLOR_Y,
-        font={"color": _AXIS_COLOR_Y, "size": 11},
-        yanchor="bottom")
+        arrowcolor=_AXIS_COLOR_Y)
+    # Y label ที่ปลายหัวลูกศร
+    fig.add_annotation(
+        x=0, y=_ax_half_y, xref="x", yref="y",
+        text="<b>Y</b>", showarrow=False,
+        font={"color": _AXIS_COLOR_Y, "size": 12},
+        yanchor="bottom", yshift=8)
     # Origin dot
     fig.add_trace(go.Scatter(
         x=[0], y=[0], mode="markers",
