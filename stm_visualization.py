@@ -120,32 +120,33 @@ def plot_layout_preview(coords, D, lx, ly, cx=0.0, cy=0.0,
                            font={"size": 10, "color": "#0277BD"})
 
     # ── Center axes (crosshair at origin) ──────────────────────
-    pad = max(lx, ly)*0.15 + 300
-    _axis_len = max(lx, ly) / 2 + pad * 0.7
-    _AXIS_COLOR = "#E53935"   # red for X
-    _AXIS_COLOR_Y = "#1E88E5" # blue for Y
+    # ความยาวแกน = ครึ่งหนึ่งของฐานรากแต่ละด้าน พอดีกับขอบ cap
+    _ax_half_x = lx / 2
+    _ax_half_y = ly / 2
+    _AXIS_COLOR_X = "#E53935"   # red for X
+    _AXIS_COLOR_Y = "#1E88E5"   # blue for Y
     # X-axis line
     fig.add_shape(type="line",
-        x0=-_axis_len, y0=0, x1=_axis_len, y1=0,
-        line={"color": _AXIS_COLOR, "width": 1.2, "dash": "dot"},
+        x0=-_ax_half_x, y0=0, x1=_ax_half_x, y1=0,
+        line={"color": _AXIS_COLOR_X, "width": 1.5, "dash": "dot"},
         layer="below")
     # Y-axis line
     fig.add_shape(type="line",
-        x0=0, y0=-_axis_len, x1=0, y1=_axis_len,
-        line={"color": _AXIS_COLOR_Y, "width": 1.2, "dash": "dot"},
+        x0=0, y0=-_ax_half_y, x1=0, y1=_ax_half_y,
+        line={"color": _AXIS_COLOR_Y, "width": 1.5, "dash": "dot"},
         layer="below")
-    # Arrow tips (small triangles via annotation arrowhead)
+    # Arrow + label ที่ปลายแกน ใช้ pixel-offset (ax, ay) เพื่อไม่ให้ label หาย
     fig.add_annotation(
-        x=_axis_len, y=0, ax=-_axis_len, ay=0,
-        xref="x", yref="y", axref="x", ayref="y",
+        x=_ax_half_x, y=0, xref="x", yref="y",
+        ax=-30, ay=0,
         text="<b>X</b>", showarrow=True,
         arrowhead=2, arrowsize=1.2, arrowwidth=1.5,
-        arrowcolor=_AXIS_COLOR,
-        font={"color": _AXIS_COLOR, "size": 11},
+        arrowcolor=_AXIS_COLOR_X,
+        font={"color": _AXIS_COLOR_X, "size": 11},
         xanchor="left")
     fig.add_annotation(
-        x=0, y=_axis_len, ax=0, ay=-_axis_len,
-        xref="x", yref="y", axref="x", ayref="y",
+        x=0, y=_ax_half_y, xref="x", yref="y",
+        ax=0, ay=30,
         text="<b>Y</b>", showarrow=True,
         arrowhead=2, arrowsize=1.2, arrowwidth=1.5,
         arrowcolor=_AXIS_COLOR_Y,
