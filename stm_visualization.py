@@ -277,47 +277,88 @@ def plot_rebar_layout(coords, D, lx, ly, cx, cy, col_size, cap_polygon,
 # ==============================================================
 # 3D INTERACTIVE VIEW
 # ==============================================================
-def _box_mesh(x0, x1, y0, y1, z0, z1, color, opacity=0.4):
+# แทนที่ฟังก์ชัน _box_mesh
+def _box_mesh(x0, x1, y0, y1, z0, z1, color, opacity=0.4, lighting=None):
     """Return Mesh3d trace for an axis-aligned box."""
     x = [x0, x1, x1, x0, x0, x1, x1, x0]
     y = [y0, y0, y1, y1, y0, y0, y1, y1]
     z = [z0, z0, z0, z0, z1, z1, z1, z1]
+    
+    # ดัชนีการเชื่อมจุดที่แก้ไขแล้ว (จากข้อ 1)
     i = [0, 0, 4, 4, 0, 0, 2, 2, 0, 0, 1, 1]
     j = [1, 2, 5, 6, 1, 3, 3, 7, 3, 7, 2, 6]
-    k = [2, 3, 6, 7, 5, 4, 7, 6, 7, 4, 6, 5]
-    return go.Mesh3d(x=x, y=y, z=z, i=i, j=j, k=k,
-                     color=color, opacity=opacity,
-                     flatshading=True, hoverinfo="skip",
-                     showlegend=False)
+    k = [2, 3, 7, 7, 5, 4, 7, 6, 7, 4, 6, 5]
+    
+    kwargs = {
+        "x": x, "y": y, "z": z, "i": i, "j": j, "k": k,
+        "color": color, "opacity": opacity,
+        "flatshading": True, # ใช้ True เพื่อให้มุมดูคม
+        "hoverinfo": "skip", "showlegend": False
+    }
+    if lighting:
+        kwargs["lighting"] = lighting
+        
+    return go.Mesh3d(**kwargs)
 
-
-def _polygon_extrude_mesh(polygon, z0, z1, color, opacity=0.4):
+# แทนที่ฟังก์ชัน _polygon_extrude_mesh
+def _polygon_extrude_mesh(polygon, z0, z1, color, opacity=0.4, lighting=None):
     """Extrude a 2D polygon between z0..z1 (fan triangulation)."""
     n = len(polygon)
     cx = sum(p[0] for p in polygon) / n
     cy = sum(p[1] for p in polygon) / n
     xs, ys, zs = [], [], []
-    # bottom (idx 0..n-1) & top (idx n..2n-1)
     for (px, py) in polygon:
         xs.append(px); ys.append(py); zs.append(z0)
     for (px, py) in polygon:
         xs.append(px); ys.append(py); zs.append(z1)
-    # bottom centroid (idx 2n) & top centroid (idx 2n+1)
     xs.extend([cx, cx]); ys.extend([cy, cy]); zs.extend([z0, z1])
     bc, tc = 2*n, 2*n+1
     i, j, k = [], [], []
     for a in range(n):
         b = (a + 1) % n
-        # bottom fan
         i += [bc]; j += [b]; k += [a]
-        # top fan
         i += [tc]; j += [n + a]; k += [n + b]
-        # side quad → 2 triangles
         i += [a, a]; j += [b, n + b]; k += [n + b, n + a]
-    return go.Mesh3d(x=xs, y=ys, z=zs, i=i, j=j, k=k,
-                     color=color, opacity=opacity,
-                     flatshading=True, hoverinfo="skip",
-                     showlegend=False)
+        
+    kwargs = {
+        "x": xs, "y": ys, "z": zs, "i": i, "j": j, "k": k,
+        "color": color, "opacity": opacity,
+        "flatshading": True, "hoverinfo": "skip", "showlegend": False
+    }
+    if lighting:
+        kwargs["lighting"] = lighting
+    return go.Mesh3d(**kwargs)
+
+# แทนที่ฟังก์ชัน _cylinder_mesh
+def _cylinder_mesh(cx, cy, z0, z1, r, color, opacity=0.85, lighting=None, n=24):
+    """Vertical cylinder mesh."""
+    import math as _m
+    xs, ys, zs = [], [], []
+    for k_ in range(n):
+        a = 2*_m.pi*k_/n
+        xs.append(cx + r*_m.cos(a)); ys.append(cy + r*_m.sin(a))
+        zs.append(z0)
+    for k_ in range(n):
+        a = 2*_m.pi*k_/n
+        xs.append(cx + r*_m.cos(a)); ys.append(cy + r*_m.sin(a))
+        zs.append(z1)
+    xs += [cx, cx]; ys += [cy, cy]; zs += [z0, z1]
+    bc, tc = 2*n, 2*n+1
+    i, j, k = [], [], []
+    for a in range(n):
+        b = (a+1) % n
+        i += [bc]; j += [b]; k += [a]
+        i += [tc]; j += [n+a]; k += [n+b]
+        i += [a, a]; j += [b, n+b]; k += [n+b, n+a]
+        
+    kwargs = {
+        "x": xs, "y": ys, "z": zs, "i": i, "j": j, "k": k,
+        "color": color, "opacity": opacity,
+        "flatshading": True, "hoverinfo": "skip", "showlegend": False
+    }
+    if lighting:
+        kwargs["lighting"] = lighting
+    return go.Mesh3d(**kwargs)
 
 
 def _cylinder_mesh(cx, cy, z0, z1, r, color, opacity=0.85, n=24):
@@ -352,53 +393,83 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
     """3D interactive view: cap, piles, column, struts, ties."""
     fig = go.Figure()
 
-    # Cap (extruded polygon or box)
+    # --- การตั้งค่าแสงเงา (Lighting) สำหรับให้ดูสมจริง ---
+    # ambient: แสงโดยรอบ, diffuse: แสงกระจาย, roughness: ความหยาบของผิว, specular: แสงสะท้อน
+    LIGHTING_CONCRETE = dict(
+        ambient=0.4, diffuse=0.8, roughness=0.5, 
+        fresnel=0.1, specular=0.1
+    )
+
+    # --- 1. Ground Plane (พื้นดิน) ---
+    # สร้างผิวดินสีน้ำตาล/ดินโปร่งแสงที่ฐานของเสาเข็ม
+    ground_size = max(cap_lx, cap_ly) * 2.0  # ขนาดพื้นดิน 2 เท่าของฐาน
+    z_ground = -pile_length
+    # ใช้ Mesh3d สร้างระนาบ 2 สามเหลี่ยม
+    fig.add_trace(go.Mesh3d(
+        x=[-ground_size, ground_size, ground_size, -ground_size],
+        y=[-ground_size, -ground_size, ground_size, ground_size],
+        z=[z_ground, z_ground, z_ground, z_ground],
+        i=[0, 0], j=[1, 2], k=[2, 3],
+        color='#5D4037', # สีดิน (Brownish)
+        opacity=0.3,      # โปร่งแสงเล็กน้อย
+        lighting=LIGHTING_CONCRETE,
+        hoverinfo="skip", showlegend=False
+    ))
+
+    # --- 2. Cap (ฐานรองรับ) ---
+    # ปรับ Opacity = 0.25 เพื่อให้โปร่งแสง และเห็น Strut ภายในได้ชัด
     if cap_polygon:
         fig.add_trace(_polygon_extrude_mesh(
-            cap_polygon, 0.0, h_cap, "#bdc3c7", opacity=0.35))
+            cap_polygon, 0.0, h_cap, "#bdc3c7", 
+            opacity=0.25, lighting=LIGHTING_CONCRETE))
     else:
         fig.add_trace(_box_mesh(
             cap_cx-cap_lx/2, cap_cx+cap_lx/2,
             cap_cy-cap_ly/2, cap_cy+cap_ly/2,
-            0.0, h_cap, "#bdc3c7", opacity=0.35))
+            0.0, h_cap, "#bdc3c7", 
+            opacity=0.25, lighting=LIGHTING_CONCRETE))
 
-    # Column (above cap)
+    # --- 3. Column (เสาคอนกรีต) ---
     sec_c, cbx, cby, cdm = _normalize_col(col_size)
     if sec_c == "Circular":
         fig.add_trace(_cylinder_mesh(
             0.0, 0.0, h_cap, h_cap+col_height, cdm/2,
-            "#FF8A65", opacity=0.85))
+            "#FF8A65", opacity=0.9, lighting=LIGHTING_CONCRETE))
     else:
         fig.add_trace(_box_mesh(
             -cbx/2, cbx/2, -cby/2, cby/2,
-            h_cap, h_cap+col_height, "#FF8A65", opacity=0.85))
+            h_cap, h_cap+col_height, "#FF8A65", 
+            opacity=0.9, lighting=LIGHTING_CONCRETE))
 
-    # Piles (below cap)
+    # --- 4. Piles (เสาเข็ม) ---
+    # ปรับ Opacity = 0.95 เพื่อให้ดูเป็นของแข็งแท้
     sec_p, pbx, pby, pdm = _normalize_pile(D)
     for (px, py) in coords:
         if sec_p == "Circular":
             fig.add_trace(_cylinder_mesh(
                 px, py, -pile_length, 0.0, pdm/2,
-                "#5B8DEF", opacity=0.8))
+                "#5B8DEF", opacity=0.95, lighting=LIGHTING_CONCRETE))
         elif sec_p == "Square":
             fig.add_trace(_box_mesh(
                 px-pbx/2, px+pbx/2, py-pbx/2, py+pbx/2,
-                -pile_length, 0.0, "#5B8DEF", opacity=0.8))
+                -pile_length, 0.0, "#5B8DEF", 
+                opacity=0.95, lighting=LIGHTING_CONCRETE))
         else:
             fig.add_trace(_box_mesh(
                 px-pbx/2, px+pbx/2, py-pby/2, py+pby/2,
-                -pile_length, 0.0, "#5B8DEF", opacity=0.8))
+                -pile_length, 0.0, "#5B8DEF", 
+                opacity=0.95, lighting=LIGHTING_CONCRETE))
 
-    # Struts (column-top centroid → each pile-top)
+    # --- 5. Struts & Ties (ส่วนที่เหลือเหมือนเดิม) ---
     col_top_z = h_cap + col_height/2
     pile_top_z = (pdm if sec_p == "Circular" else pbx) / 2.0
-    Fs_max = max((s["F_strut_kN"] for s in results.get("struts", [])),
-                 default=1.0)
-    # Define distinct colors to avoid confusion with ties
-    STRUT_LOW = "#3498db"   # blue
-    STRUT_MID = "#f39c12"   # amber
-    STRUT_HIGH = "#c0392b"  # red
-    TIE_COLOR = "#27ae60"   # green
+    Fs_max = max((s["F_strut_kN"] for s in results.get("struts", [])), default=1.0)
+    
+    STRUT_LOW = "#2980b9"   # ปรับสีให้เข้มขึ้นเล็กน้อย
+    STRUT_MID = "#f39c12"
+    STRUT_HIGH = "#c0392b"
+    TIE_COLOR = "#27ae60"
+    
     for s in results.get("struts", []):
         x, y = s["coord"]
         dcr_ratio = s["F_strut_kN"] / Fs_max if Fs_max > 0 else 0
@@ -416,7 +487,6 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
                 s["F_strut_kN"], s["theta_deg"])),
             hoverinfo="text", showlegend=False, name="Strut"))
 
-    # Ties (only orthogonal pairs, at tie level) - keep all for triangular base
     tol = 1.0
     is_triangular_base = len(coords) == 3
     for i in range(len(coords)):
@@ -445,14 +515,16 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
             xaxis_title="X (mm)", yaxis_title="Y (mm)",
             zaxis_title="Z (mm)",
             aspectmode="data",
-            camera=dict(eye=dict(x=1.6, y=-1.6, z=1.0)),
+            # ปรับมุมกล้องให้มองเห็นมิติดีขึ้น
+            camera=dict(eye=dict(x=1.8, y=-1.8, z=0.8)), 
         ),
         height=650,
         margin=dict(l=0, r=0, t=50, b=0),
         legend=dict(itemsizing="constant"),
     )
+    
     # Legend dummy traces
-    for nm, clr in [("Strut (low DCR)", "#3498db"),
+    for nm, clr in [("Strut (low DCR)", "#2980b9"),
                     ("Strut (mid DCR)", "#f39c12"),
                     ("Strut (high DCR)", "#c0392b"),
                     ("Tie", "#27ae60")]:
