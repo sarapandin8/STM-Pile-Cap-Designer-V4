@@ -120,17 +120,48 @@ def plot_layout_preview(coords, D, lx, ly, cx=0.0, cy=0.0,
                            font={"size": 10, "color": "#0277BD"})
 
     pad = max(lx, ly)*0.15 + 300
+        
+    # --- เริ่มต้นส่วนที่แก้ไข ---
     fig.update_layout(
         title="Pile Cap Layout - {} ({} piles)".format(shape, len(coords)),
-        xaxis={"scaleanchor": "y", "scaleratio": 1, "title": "X (mm)",
-               "range": [cx-lx/2-pad, cx+lx/2+pad],
-               "gridcolor": "#ECEFF1"},
-        yaxis={"title": "Y (mm)",
-               "range": [cy-ly/2-pad, cy+ly/2+pad],
-               "gridcolor": "#ECEFF1"},
-        plot_bgcolor="white", paper_bgcolor="white",
-        height=560, margin={"l": 40, "r": 40, "t": 60, "b": 40},
-        showlegend=False)
+        
+        # ตั้งค่าแกน X
+        xaxis=dict(
+            scaleanchor="y", 
+            scaleratio=1, 
+            title="X (mm)",
+            range=[cx-lx/2-pad, cx+lx/2+pad],
+            gridcolor="#ECEFF1",
+            # --- เพิ่มการตกแต่งแกนให้ชัดขึ้น ---
+            zeroline=True,         # แสดงเส้นผ่านจุดศูนย์กลาง (Center Line)
+            zerolinecolor="black", # สีเส้น
+            zerolinewidth=2,       # ความหนาเส้น
+            showline=True,         # แสดงเส้นขอบด้านนอก
+            linecolor="black",     # สีเส้นขอบ
+            linewidth=2            # ความหนาเส้นขอบ
+        ),
+        
+        # ตั้งค่าแกน Y
+        yaxis=dict(
+            title="Y (mm)",
+            range=[cy-ly/2-pad, cy+ly/2+pad],
+            gridcolor="#ECEFF1",
+            # --- เพิ่มการตกแต่งแกนให้ชัดขึ้น ---
+            zeroline=True,
+            zerolinecolor="black",
+            zerolinewidth=2,
+            showline=True,
+            linecolor="black",
+            linewidth=2
+        ),
+        
+        plot_bgcolor="white", 
+        paper_bgcolor="white",
+        height=560, 
+        margin={"l": 40, "r": 40, "t": 60, "b": 40},
+        showlegend=False
+    )
+    # --- จบส่วนที่แก้ไข ---
     return fig
 
 
