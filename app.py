@@ -12,6 +12,20 @@ from stm_calculations import (
     optimize_rebar, check_anchorage,
     compute_top_reinforcement,
 )
+def _cap_area_m2(cap_polygon, cap_lx, cap_ly):
+    """คำนวณพื้นที่ฐานราก (m²)
+    - มี cap_polygon (truncated triangle) → Shoelace formula (พื้นที่จริง)
+    - ไม่มี cap_polygon → Lx × Ly (bounding box)"""
+    if cap_polygon and len(cap_polygon) >= 3:
+        pts = cap_polygon
+        n = len(pts)
+        area = abs(sum(pts[i][0]*pts[(i+1)%n][1] -
+                       pts[(i+1)%n][0]*pts[i][1]
+                       for i in range(n))) / 2.0
+        return area / 1e6  # mm² → m²
+    return (cap_lx / 1000.0) * (cap_ly / 1000.0)
+
+
 from stm_visualization import (
     plot_layout_preview, plot_plan_view,
     plot_elevation, plot_rebar_layout, plot_3d_view,
@@ -322,7 +336,8 @@ with left:
     if not coords:
         st.warning("No piles defined.")
     else:
-        W_cap_preview = (cap_lx/1000.0) * (cap_ly/1000.0) * (h_cap/1000.0) * 24.0 \
+        W_cap_preview = _cap_area_m2(cap_polygon, cap_lx, cap_ly) \
+                        * (h_cap/1000.0) * 24.0 \
                         * st.session_state.wcap_uls_factor
         pile_loads_preview = compute_pile_reactions(
             coords, Pu + W_cap_preview, Mux, Muy)
@@ -384,8 +399,9 @@ if calc_btn:
     elif not ok_sp:
         st.error("Cannot calculate: spacing violations.")
     else:
-        # น้ำหนักตัวเอง Pile Cap (ULS): W = Lx × Ly × h × γc × γ_ULS
-        _W_cap_nom = (cap_lx/1000.0) * (cap_ly/1000.0) * (h_cap/1000.0) * 24.0
+        # น้ำหนักตัวเอง Pile Cap (ULS): W = Area × h × γc × γ_ULS
+        # Area = พื้นที่จริงของ cap (Shoelace สำหรับ polygon, Lx×Ly สำหรับสี่เหลี่ยม)
+        _W_cap_nom = _cap_area_m2(cap_polygon, cap_lx, cap_ly) * (h_cap/1000.0) * 24.0
         W_cap_kN = _W_cap_nom * st.session_state.wcap_uls_factor
         _res = stm_design(coords, Pu, Mux, Muy, fc, fy, D,
                           col_size, h_cap, cover, W_cap_kN=W_cap_kN)
@@ -912,7 +928,7 @@ As_req = 0.003 × b × h_cap
         "fc": fc, "fy": fy, "cover": cover,
         "Pu": Pu, "Mux": Mux, "Muy": Muy,
         "W_cap_kN": results["W_cap_kN"],
-        "W_cap_nom_kN": (cap_lx/1000.0) * (cap_ly/1000.0) * (h_cap/1000.0) * 24.0,
+        "W_cap_nom_kN": _cap_area_m2(cap_polygon, cap_lx, cap_ly) * (h_cap/1000.0) * 24.0,
         "wcap_uls_factor": st.session_state.wcap_uls_factor,
         "Pu_total_kN": results["Pu_total_kN"],
         "D": D, "h_cap": h_cap, "col_size": col_size,
