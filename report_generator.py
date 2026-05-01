@@ -399,14 +399,19 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     ])
 
     doc.add_heading('1.3 Column Loads', level=2)
-    _w_cap = inputs.get('W_cap_kN', 0.0)
-    _pu_total = inputs.get('Pu_total_kN', inputs['Pu'])
+    _w_cap_nom = inputs.get('W_cap_nom_kN', inputs.get('W_cap_kN', 0.0))
+    _uls_fac   = inputs.get('wcap_uls_factor', 1.2)
+    _w_cap_uls = inputs.get('W_cap_kN', 0.0)
+    _pu_total  = inputs.get('Pu_total_kN', inputs['Pu'])
     _make_table(doc, ['Load', 'Value'], [
-        ["Axial Pu (column load)", "{:.1f} kN".format(inputs['Pu'])],
-        ["Pile cap self-weight W_cap",
-         "{:.1f} kN  (Lx × Ly × h × 24 kN/m³)".format(_w_cap)],
-        ["Total axial Pu_total = Pu + W_cap",
-         "{:.1f} kN  ← used for pile reaction calculation".format(_pu_total)],
+        ["Axial Pu (column load, ULS)", "{:.1f} kN".format(inputs['Pu'])],
+        ["W_cap nominal  (Lx × Ly × h × 24 kN/m³)",
+         "{:.1f} kN".format(_w_cap_nom)],
+        ["ULS factor γ for W_cap", "{:.2f}".format(_uls_fac)],
+        ["W_cap (ULS) = W_cap_nom × γ",
+         "{:.1f} kN".format(_w_cap_uls)],
+        ["Pu_total = Pu + W_cap(ULS)  ← used for pile reactions",
+         "{:.1f} kN".format(_pu_total)],
         ["Moment Mux (about X-axis)", "{:.1f} kN·m".format(inputs['Mux'])],
         ["Moment Muy (about Y-axis)", "{:.1f} kN·m".format(inputs['Muy'])],
     ])

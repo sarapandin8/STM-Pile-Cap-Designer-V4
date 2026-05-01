@@ -43,6 +43,7 @@ DEFAULTS = {
     "x_bar": "DB20", "x_n": 8,
     "y_bar": "DB20", "y_n": 8,
     "top_bar_size": "DB20",
+    "wcap_uls_factor": 1.2,
 }
 for _k, _v in DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
@@ -134,6 +135,12 @@ with st.sidebar:
                              200.0, 3500.0, step=50.0, key="pile_by")
         st.number_input("Cap thickness (mm)", 400, 3000, step=50,
                         key="h_cap")
+        st.number_input(
+            "W_cap ULS factor (γ)",
+            min_value=1.0, max_value=2.0, step=0.05,
+            key="wcap_uls_factor",
+            help="W_cap(ULS) = Lx × Ly × h × 24 × γ  "
+                 "ค่าแนะนำ: 1.2 (DL factor) หรือ 1.35 (Eurocode)")
 
     fc = st.session_state.fc
     fy = st.session_state.fy
@@ -315,7 +322,8 @@ with left:
     if not coords:
         st.warning("No piles defined.")
     else:
-        W_cap_preview = (cap_lx / 1000.0) * (cap_ly / 1000.0) * (h_cap / 1000.0) * 24.0
+        W_cap_preview = (cap_lx/1000.0) * (cap_ly/1000.0) * (h_cap/1000.0) * 24.0 \
+                        * st.session_state.wcap_uls_factor
         pile_loads_preview = compute_pile_reactions(
             coords, Pu + W_cap_preview, Mux, Muy)
         st.plotly_chart(
@@ -376,8 +384,9 @@ if calc_btn:
     elif not ok_sp:
         st.error("Cannot calculate: spacing violations.")
     else:
-        # น้ำหนักตัวเอง Pile Cap: W = Lx × Ly × h × γc (24 kN/m³)
-        W_cap_kN = (cap_lx / 1000.0) * (cap_ly / 1000.0) * (h_cap / 1000.0) * 24.0
+        # น้ำหนักตัวเอง Pile Cap (ULS): W = Lx × Ly × h × γc × γ_ULS
+        _W_cap_nom = (cap_lx/1000.0) * (cap_ly/1000.0) * (h_cap/1000.0) * 24.0
+        W_cap_kN = _W_cap_nom * st.session_state.wcap_uls_factor
         _res = stm_design(coords, Pu, Mux, Muy, fc, fy, D,
                           col_size, h_cap, cover, W_cap_kN=W_cap_kN)
         if "error" in _res:
@@ -903,6 +912,8 @@ As_req = 0.003 × b × h_cap
         "fc": fc, "fy": fy, "cover": cover,
         "Pu": Pu, "Mux": Mux, "Muy": Muy,
         "W_cap_kN": results["W_cap_kN"],
+        "W_cap_nom_kN": (cap_lx/1000.0) * (cap_ly/1000.0) * (h_cap/1000.0) * 24.0,
+        "wcap_uls_factor": st.session_state.wcap_uls_factor,
         "Pu_total_kN": results["Pu_total_kN"],
         "D": D, "h_cap": h_cap, "col_size": col_size,
         "coords": coords,
