@@ -315,7 +315,9 @@ with left:
     if not coords:
         st.warning("No piles defined.")
     else:
-        pile_loads_preview = compute_pile_reactions(coords, Pu, Mux, Muy)
+        W_cap_preview = (cap_lx / 1000.0) * (cap_ly / 1000.0) * (h_cap / 1000.0) * 24.0
+        pile_loads_preview = compute_pile_reactions(
+            coords, Pu + W_cap_preview, Mux, Muy)
         st.plotly_chart(
             plot_layout_preview(
                 coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
@@ -374,8 +376,10 @@ if calc_btn:
     elif not ok_sp:
         st.error("Cannot calculate: spacing violations.")
     else:
+        # น้ำหนักตัวเอง Pile Cap: W = Lx × Ly × h × γc (24 kN/m³)
+        W_cap_kN = (cap_lx / 1000.0) * (cap_ly / 1000.0) * (h_cap / 1000.0) * 24.0
         _res = stm_design(coords, Pu, Mux, Muy, fc, fy, D,
-                          col_size, h_cap, cover)
+                          col_size, h_cap, cover, W_cap_kN=W_cap_kN)
         if "error" in _res:
             st.error(_res["error"])
             st.session_state.pop("_stm_results", None)
@@ -399,14 +403,26 @@ if "_stm_results" in st.session_state:
                        results["P_min_kN"]))
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("P_max",
+    m1.metric("Pu (column)",
+              "{:.0f} kN".format(results["Pu_kN"]))
+    m2.metric("W_cap (self-wt)",
+              "{:.0f} kN".format(results["W_cap_kN"]),
+              help="Lx × Ly × h × 24 kN/m³")
+    m3.metric("Pu_total",
+              "{:.0f} kN".format(results["Pu_total_kN"]),
+              help="Pu + W_cap — used for pile reaction calculation")
+    m4.metric("P_max (pile)",
               "{:.0f} kN".format(results["P_max_kN"]))
-    m2.metric("Tie X max",
+    m5, m6, m7, m8 = st.columns(4)
+    m5.metric("Tie X max",
               "{:.0f} kN".format(results["F_tie_x_max_kN"]))
-    m3.metric("Tie Y max",
+    m6.metric("Tie Y max",
               "{:.0f} kN".format(results["F_tie_y_max_kN"]))
-    m4.metric("d_eff",
+    m7.metric("d_eff",
               "{:.0f} mm".format(results["d_effective_mm"]))
+    m8.metric("Min strut angle",
+              "{:.1f}°".format(results["min_strut_angle_deg"]),
+              help="ACI requires ≥ 25°")
 
     x_chk = check_rebar(x_bar, int(x_n),
                         results["As_x_required_mm2"])
@@ -886,6 +902,8 @@ As_req = 0.003 × b × h_cap
     inputs_dict = {
         "fc": fc, "fy": fy, "cover": cover,
         "Pu": Pu, "Mux": Mux, "Muy": Muy,
+        "W_cap_kN": results["W_cap_kN"],
+        "Pu_total_kN": results["Pu_total_kN"],
         "D": D, "h_cap": h_cap, "col_size": col_size,
         "coords": coords,
         "cap_lx": cap_lx, "cap_ly": cap_ly,

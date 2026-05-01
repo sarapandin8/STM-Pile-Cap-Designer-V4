@@ -399,10 +399,16 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     ])
 
     doc.add_heading('1.3 Column Loads', level=2)
+    _w_cap = inputs.get('W_cap_kN', 0.0)
+    _pu_total = inputs.get('Pu_total_kN', inputs['Pu'])
     _make_table(doc, ['Load', 'Value'], [
-        ["Axial Pu", "{:.1f} kN".format(inputs['Pu'])],
-        ["Moment Mux (about X-axis)", "{:.1f} kN-m".format(inputs['Mux'])],
-        ["Moment Muy (about Y-axis)", "{:.1f} kN-m".format(inputs['Muy'])],
+        ["Axial Pu (column load)", "{:.1f} kN".format(inputs['Pu'])],
+        ["Pile cap self-weight W_cap",
+         "{:.1f} kN  (Lx × Ly × h × 24 kN/m³)".format(_w_cap)],
+        ["Total axial Pu_total = Pu + W_cap",
+         "{:.1f} kN  ← used for pile reaction calculation".format(_pu_total)],
+        ["Moment Mux (about X-axis)", "{:.1f} kN·m".format(inputs['Mux'])],
+        ["Moment Muy (about Y-axis)", "{:.1f} kN·m".format(inputs['Muy'])],
     ])
 
     # 2. Pile Layout
@@ -437,7 +443,12 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     doc.add_heading('2.2 Pile Reactions (Rigid-Cap Elastic)', level=2)
     p = doc.add_paragraph()
     p.add_run('Formula: ').bold = True
-    p.add_run("P_i = Pu/n + (Mux x y_i) / Σy_j² + (Muy x x_i) / Σx_j²")
+    p.add_run("P_i = Pu_total/n + (Mux × y_i) / Σy_j² + (Muy × x_i) / Σx_j²")
+    p = doc.add_paragraph()
+    p.add_run('where Pu_total = Pu + W_cap = {:.1f} + {:.1f} = {:.1f} kN'.format(
+        inputs['Pu'],
+        inputs.get('W_cap_kN', 0.0),
+        inputs.get('Pu_total_kN', inputs['Pu'])))
     rows = [["P{}".format(i+1),
              "{:.0f}".format(c[0]),
              "{:.0f}".format(c[1]),

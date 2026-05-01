@@ -317,14 +317,19 @@ def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm):
 
 
 def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
-               cover=75.0, beta_s=0.75):
+               cover=75.0, beta_s=0.75, W_cap_kN=0.0):
     """STM design per ACI 318-19 Ch. 23. No separate punching/beam shear
-       check (per ACI §13.4.6.3 — covered by strut & node strength)."""
+       check (per ACI §13.4.6.3 — covered by strut & node strength).
+       W_cap_kN: self-weight of pile cap (kN), added to Pu for pile reactions.
+       Note: W_cap is NOT included in column node check (col_DCR) because
+       cap self-weight is distributed load, not transmitted through column."""
     n = len(coords)
     if n < 2:
         return {"error": "Need at least 2 piles."}
 
-    pile_loads = compute_pile_reactions(coords, Pu, Mux, Muy)
+    # Pu_total = column load + pile cap self-weight
+    Pu_total = Pu + W_cap_kN
+    pile_loads = compute_pile_reactions(coords, Pu_total, Mux, Muy)
     P_max = max(pile_loads)
     P_min = min(pile_loads)
     has_uplift = P_min < -1e-3
@@ -394,7 +399,7 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         A_col = float(col) ** 2
     Pn_col = fce_node(fc, 1.00) * A_col / 1000.0
     phi_Pn_col = PHI_BEARING * Pn_col
-    col_dcr = Pu/phi_Pn_col if phi_Pn_col > 0 else float("inf")
+    col_dcr = Pu/phi_Pn_col if phi_Pn_col > 0 else float("inf")  # Pu only — W_cap not through column node
 
     As_x = (Ftx_max * 1000.0) / (PHI_STM * fy) if fy > 0 else 0.0
     As_y = (Fty_max * 1000.0) / (PHI_STM * fy) if fy > 0 else 0.0
@@ -417,6 +422,8 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     return {
         "n_piles": n,
         "Pu_kN": Pu, "Mux_kNm": Mux, "Muy_kNm": Muy,
+        "W_cap_kN": W_cap_kN,
+        "Pu_total_kN": Pu_total,
         "pile_loads_kN": pile_loads,
         "P_max_kN": P_max, "P_min_kN": P_min,
         "has_uplift": has_uplift,
