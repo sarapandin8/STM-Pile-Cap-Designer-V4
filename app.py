@@ -56,13 +56,13 @@ with st.sidebar:
     sl1, sl2 = st.columns(2)
     state_for_save = {k: st.session_state[k] for k in DEFAULTS}
     sl1.download_button(
-        "💾 Save As",
+        "💾 Save",
         data=json.dumps(state_for_save, indent=2),
         file_name="pile_cap_design.json",
         mime="application/json",
         use_container_width=True)
-    up = sl2.file_uploader("📂 Load", type="json",
-                           label_visibility="collapsed",
+    up = sl2.file_uploader("📂 Open File", type="json",
+                           label_visibility="visible",
                            key="json_uploader")
     if up is not None and up.file_id != st.session_state.get(
             "_last_upload_id"):
@@ -76,6 +76,9 @@ with st.sidebar:
             st.rerun()
         except Exception as exc:
             st.error("Load failed: {}".format(exc))
+    st.caption("💡 ไฟล์จะถูกบันทึกที่ Downloads folder "
+               "หากต้องการเลือก folder เอง ให้เปิด "
+               "\"Ask where to save\" ในการตั้งค่า Browser")
 
     st.divider()
     st.header("⚙️ Inputs")
