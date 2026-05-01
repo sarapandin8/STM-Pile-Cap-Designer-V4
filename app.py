@@ -56,7 +56,7 @@ with st.sidebar:
     sl1, sl2 = st.columns(2)
     state_for_save = {k: st.session_state[k] for k in DEFAULTS}
     sl1.download_button(
-        "⬇️ Save",
+        "💾 Save As",
         data=json.dumps(state_for_save, indent=2),
         file_name="pile_cap_design.json",
         mime="application/json",
