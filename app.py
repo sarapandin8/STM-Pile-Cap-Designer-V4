@@ -300,16 +300,38 @@ with st.sidebar:
         st.markdown("**Custom coordinates (mm)** (one `x, y` per line)")
         st.caption(
             "Default = 4 piles in a 3×3 m square arrangement. "
-            "Edit to customize.")
+            "Edit, then click Update to apply.")
         _default_custom = "1500,1500\n-1500,1500\n-1500,-1500\n1500,-1500"
-        _current = st.session_state.get("custom_text", "") or ""
-        if not _current.strip():
-            _current = _default_custom
-        _txt = st.text_area("Coords", value=_current, height=140,
-                            label_visibility="collapsed",
-                            key="custom_text_input")
-        st.session_state.custom_text = _txt
-        coords = parse_custom_coords(_txt)
+        _applied_txt = st.session_state.get("custom_text", "") or ""
+        if not _applied_txt.strip():
+            _applied_txt = _default_custom
+            st.session_state.custom_text = _applied_txt
+        if st.session_state.get("_custom_text_applied_seen") != _applied_txt:
+            st.session_state.custom_text_draft = _applied_txt
+            st.session_state._custom_text_applied_seen = _applied_txt
+        st.text_area("Coords", height=140,
+                     label_visibility="collapsed",
+                     key="custom_text_draft")
+        draft_txt = st.session_state.get("custom_text_draft", "")
+        draft_coords = parse_custom_coords(draft_txt)
+        b_apply, b_status = st.columns([1, 2])
+        if b_apply.button("Update pile coordinates",
+                          use_container_width=True,
+                          key="apply_custom_coords"):
+            if len(draft_coords) < 2:
+                st.error("Please enter at least 2 valid pile coordinates.")
+            else:
+                st.session_state.custom_text = draft_txt
+                st.session_state._custom_text_applied_seen = draft_txt
+                st.session_state.pop("_stm_results", None)
+                st.rerun()
+        if draft_txt != _applied_txt:
+            b_status.warning(
+                "Draft not applied yet. Click Update to refresh the plot.")
+        else:
+            b_status.caption(
+                "Applied coordinates: {} pile(s).".format(len(draft_coords)))
+        coords = parse_custom_coords(st.session_state.custom_text)
         st.selectbox("Cap shape (visual)",
                      ["Square", "Rectangular", "Triangular"],
                      key="custom_shape")
