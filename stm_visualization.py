@@ -335,12 +335,14 @@ def plot_rebar_layout(coords, D, lx, ly, cx, cy, col_size, cap_polygon,
     sx = "OK" if x_chk["ok"] else "FAIL"
     sy = "OK" if y_chk["ok"] else "FAIL"
     fig.add_annotation(x=cx, y=cy+ly/2+150,
-        text="<b>X-dir: {}-{}</b> As_prov={:.0f} / req={:.0f} mm² → {}".format(
-            x_n, x_bar, x_chk["As_provided"], x_chk["As_required"], sx),
+        text="<b>X-dir: {}-{}</b> As_prov={:.0f} / req={:.0f} mm² ({}) → {}".format(
+            x_n, x_bar, x_chk["As_provided"], x_chk["As_required"],
+            results.get("As_x_governs", "governing"), sx),
         showarrow=False, font={"color": REBAR_X, "size": 12})
     fig.add_annotation(x=cx, y=cy+ly/2+260,
-        text="<b>Y-dir: {}-{}</b> As_prov={:.0f} / req={:.0f} mm² → {}".format(
-            y_n, y_bar, y_chk["As_provided"], y_chk["As_required"], sy),
+        text="<b>Y-dir: {}-{}</b> As_prov={:.0f} / req={:.0f} mm² ({}) → {}".format(
+            y_n, y_bar, y_chk["As_provided"], y_chk["As_required"],
+            results.get("As_y_governs", "governing"), sy),
         showarrow=False, font={"color": REBAR_Y, "size": 12})
     fig.update_layout(title="Reinforcement Layout (Plan)")
     return fig
@@ -734,7 +736,7 @@ def plot_top_rebar_layout(coords, D, lx, ly, cx, cy, col_size,
 
     fig.update_layout(
         title=(
-            "Top-Face Min. Reinforcement — {} "
+            "Top-Face Min. Reinforcement — {} | (0.0018Ag)/2 "
             "(fy_d = {:.0f} MPa, s_max = {:.0f} mm)".format(
                 bar, fy_d, s_max)),
         legend=dict(

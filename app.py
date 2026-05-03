@@ -96,7 +96,8 @@ def _design_recommendations(results, x_chk=None, y_chk=None,
             action = "Increase X-direction bar count or select a larger bar size."
         add(
             "Bottom tie steel X",
-            "Provided As ratio = {:.2f}".format(x_chk.get("ratio", 0.0)),
+            "Provided As ratio = {:.2f}; governing demand = {}".format(
+                x_chk.get("ratio", 0.0), results.get("As_x_governs", "—")),
             action)
 
     if y_chk is not None and not y_chk.get("ok", True):
@@ -107,7 +108,8 @@ def _design_recommendations(results, x_chk=None, y_chk=None,
             action = "Increase Y-direction bar count or select a larger bar size."
         add(
             "Bottom tie steel Y",
-            "Provided As ratio = {:.2f}".format(y_chk.get("ratio", 0.0)),
+            "Provided As ratio = {:.2f}; governing demand = {}".format(
+                y_chk.get("ratio", 0.0), results.get("As_y_governs", "—")),
             action)
 
     if anch_x is not None and not anch_x.get("ok", True):
@@ -552,7 +554,8 @@ if calc_btn:
         _res = stm_design(coords, Pu, Mux, Muy, fc, fy, D,
                           col_size, h_cap, cover, W_cap_kN=W_cap_kN,
                           fy_x=_fy_x, fy_y=_fy_y,
-                          x_bar_size=x_bar, y_bar_size=y_bar)
+                          x_bar_size=x_bar, y_bar_size=y_bar,
+                          cap_lx_mm=cap_lx, cap_ly_mm=cap_ly)
         if "error" in _res:
             st.error(_res["error"])
             st.session_state.pop("_stm_results", None)
@@ -714,6 +717,9 @@ if "_stm_results" in st.session_state:
     
     with t3:
         st.markdown("### Required Reinforcement")
+        st.caption(
+            "Bottom-face steel is checked per direction against both STM tie "
+            "demand and minimum flexural reinforcement: As_req = max(As_STM, 0.0018Ag).")
         if results.get("is_3pile_resultant"):
             tie_x_display = tie_y_display = results["F_tie_res_kN"]
             note = " (Resultant)"
@@ -725,25 +731,45 @@ if "_stm_results" in st.session_state:
             {"Direction": "X"+note,
              "Tie (kN)":
                  "{:.1f}".format(tie_x_display),
-             "As req (mm²)":
+             "As STM (mm²)":
+                 "{:.0f}".format(results.get("As_x_stm_required_mm2", 0.0)),
+             "As min 0.0018Ag (mm²)":
+                 "{:.0f}".format(results.get("As_x_min_required_mm2", 0.0)),
+             "As req = max (mm²)":
                  "{:.0f}".format(results["As_x_required_mm2"]),
+             "Governs":
+                 results.get("As_x_governs", "—"),
              "fy used (MPa)":
                  "{:.0f}".format(results.get("fy_x_design_mpa", fy)),
              "Selected": "{}-{}".format(int(x_n), x_bar),
              "As prov (mm²)":
                  "{:.0f}".format(x_chk["As_provided"]),
+             "Min OK":
+                 "✅" if x_chk["As_provided"] >= results.get("As_x_min_required_mm2", 0.0) else "❌",
+             "STM OK":
+                 "✅" if x_chk.get("force_ok", True) else "❌",
              "Ratio": "{:.2f}".format(x_chk["ratio"]),
              "Status": "✅ OK" if x_chk["ok"] else "❌ FAIL"},
             {"Direction": "Y"+note,
              "Tie (kN)":
                  "{:.1f}".format(tie_y_display),
-             "As req (mm²)":
+             "As STM (mm²)":
+                 "{:.0f}".format(results.get("As_y_stm_required_mm2", 0.0)),
+             "As min 0.0018Ag (mm²)":
+                 "{:.0f}".format(results.get("As_y_min_required_mm2", 0.0)),
+             "As req = max (mm²)":
                  "{:.0f}".format(results["As_y_required_mm2"]),
+             "Governs":
+                 results.get("As_y_governs", "—"),
              "fy used (MPa)":
                  "{:.0f}".format(results.get("fy_y_design_mpa", fy)),
              "Selected": "{}-{}".format(int(y_n), y_bar),
              "As prov (mm²)":
                  "{:.0f}".format(y_chk["As_provided"]),
+             "Min OK":
+                 "✅" if y_chk["As_provided"] >= results.get("As_y_min_required_mm2", 0.0) else "❌",
+             "STM OK":
+                 "✅" if y_chk.get("force_ok", True) else "❌",
              "Ratio": "{:.2f}".format(y_chk["ratio"]),
              "Status": "✅ OK" if y_chk["ok"] else "❌ FAIL"},
         ])
@@ -857,8 +883,8 @@ if "_stm_results" in st.session_state:
         st.markdown("## 🪟 Top-Face Minimum Reinforcement")
         st.markdown(
             "เหล็กผิวบนของ pile cap ไม่ได้รับแรงดึงจาก STM โดยตรง "
-            "แต่ ACI 318-19 กำหนดเหล็กขั้นต่ำ **3 เกณฑ์ + 1 spacing check** "
-            "โดย fy ที่ใช้คำนวณขึ้นอยู่กับ **ขนาดเหล็กที่เลือก** ตามเงื่อนไขจริง")
+            "ดังนั้น `As_top` ใช้ค่า **(0.0018Ag)/2** ในแต่ละทิศทาง "
+            "โดย Ag คือพื้นที่หน้าตัด gross strip ของทิศนั้น")
 
         # ── Bar selector ─────────────────────────────────────
         st.markdown("### เลือกขนาดเหล็กผิวบน")
@@ -878,14 +904,13 @@ if "_stm_results" in st.session_state:
             if _fy_chosen > 420:
                 st.warning(
                     "**{} : fy = {:.0f} MPa > 420 MPa**  \n"
-                    "ACI §24.4.3.2 → ρ_ts ลดลง  \n"
                     "ACI §20.2.2.4 → cap ที่ {:.0f} MPa  \n"
                     "ACI §24.3.2   → spacing limit เพิ่มเติม".format(
                         _chosen_bar, _fy_chosen, FY_CAP_MPA))
             else:
                 st.info(
                     "**{} : fy = {:.0f} MPa ≤ 420 MPa**  \n"
-                    "ρ_ts = 0.0018  |  ไม่มี spacing penalty".format(
+                    "ρ_top = 0.0009  |  ไม่มี spacing penalty".format(
                         _chosen_bar, _fy_chosen))
 
         # ── Recompute with selected bar ───────────────────────
@@ -899,21 +924,12 @@ if "_stm_results" in st.session_state:
             st.markdown("""
 **Check A — Temperature & Shrinkage  §24.4.3.2 Table 24.4.3.2**
 ```
-ρ_ts = 0.0018              fy_d ≤ 420 MPa
-ρ_ts = 0.0018×420/fy_d    fy_d > 420 MPa  (min 0.0014)
-As_req = ρ_ts × b × h_cap
+Ag_x = ly × h_cap
+Ag_y = lx × h_cap
+As_min,bottom = 0.0018 × Ag
+As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
 ```
-**Check B — Min Flexural Reinforcement  §9.6.1.2 (ref. §13.3.3.1)**
-```
-ρ_flex = max(0.25√f'c / fy_d,  1.4 / fy_d)
-As_req = ρ_flex × b × d_top  ;  d_top = h_cap − cover − db/2
-```
-**Check C — Crack-Control for STM  §23.5.1**
-```
-ρ_face ≥ 0.003 per direction per face  (conservative per CRSI)
-As_req = 0.003 × b × h_cap
-```
-**Check D — Spacing Limits**
+**Spacing Limits**
 ```
 §24.4.3.3 : s ≤ min(3h, 450 mm)
 §24.3.2   : s ≤ min(380×(280/fs), 300×(280/fs))  where fs = (2/3)fy_d
@@ -927,18 +943,21 @@ As_req = 0.003 × b × h_cap
             tr["fy_design_mpa"], tr["fy_note"]))
 
         res_df = pd.DataFrame([
-            {"Check": "A: T&S §24.4.3.2",
-             "ρ used": "{:.4f}".format(tr["rho_ts"]),
-             "As_X req (mm²)": "{:.0f}".format(tr["As_ts_x_mm2"]),
-             "As_Y req (mm²)": "{:.0f}".format(tr["As_ts_y_mm2"])},
-            {"Check": "B: Min-Flex §9.6.1.2",
-             "ρ used": "{:.4f}".format(tr["rho_flex"]),
-             "As_X req (mm²)": "{:.0f}".format(tr["As_flex_x_mm2"]),
-             "As_Y req (mm²)": "{:.0f}".format(tr["As_flex_y_mm2"])},
-            {"Check": "C: Crack-ctrl §23.5.1",
-             "ρ used": "{:.4f}".format(tr["rho_cc"]),
-             "As_X req (mm²)": "{:.0f}".format(tr["As_cc_x_mm2"]),
-             "As_Y req (mm²)": "{:.0f}".format(tr["As_cc_y_mm2"])},
+            {"Check": "Ag gross strip",
+             "ρ used": "—",
+             "As_X req (mm²)": "{:.0f}".format(tr["Ag_x_mm2"]),
+             "As_Y req (mm²)": "{:.0f}".format(tr["Ag_y_mm2"]),
+             "ใช้เป็น As_top": "ฐานคำนวณ"},
+            {"Check": "Full minimum: 0.0018Ag",
+             "ρ used": "{:.4f}".format(tr["rho_full_min"]),
+             "As_X req (mm²)": "{:.0f}".format(tr["As_full_min_x_mm2"]),
+             "As_Y req (mm²)": "{:.0f}".format(tr["As_full_min_y_mm2"]),
+             "ใช้เป็น As_top": "หาร 2"},
+            {"Check": "Top minimum: (0.0018Ag)/2",
+             "ρ used": "{:.4f}".format(tr["rho_top"]),
+             "As_X req (mm²)": "{:.0f}".format(tr["As_top_x_mm2"]),
+             "As_Y req (mm²)": "{:.0f}".format(tr["As_top_y_mm2"]),
+             "ใช้เป็น As_top": "✅ Yes"},
         ])
         st.dataframe(res_df, use_container_width=True, hide_index=True)
 
@@ -951,6 +970,7 @@ As_req = 0.003 × b × h_cap
             "**Y-dir  As_top = {:.0f} mm²**  \n"
             "Governs: {}".format(
                 tr["As_top_y_mm2"], tr["governs_y"]))
+        st.caption(tr["top_design_note"])
 
         # ── Spacing Check ────────────────────────────────────
         st.markdown("### ตรวจสอบระยะห่างสูงสุด")
@@ -1035,17 +1055,16 @@ As_req = 0.003 × b × h_cap
         st.markdown("""
 | ตำแหน่ง | รายละเอียด | อ้างอิง ACI |
 |---|---|---|
-| **ผิวบน แนว X** | วางแนวนอน กระจายตลอดความกว้าง ly | §24.4.3.2, §23.5.1 |
-| **ผิวบน แนว Y** | วางแนวขวาง กระจายตลอดความกว้าง lx | §24.4.3.2, §23.5.1 |
+| **ผิวบน แนว X** | วางแนวนอน กระจายตลอดความกว้าง ly | §24.4.3.2 |
+| **ผิวบน แนว Y** | วางแนวขวาง กระจายตลอดความกว้าง lx | §24.4.3.2 |
 | **ระยะ cover ผิวบน** | ≥ 50 mm (exposed) ตามสภาพแวดล้อม | §20.6.1.3 |
 | **ระยะห่างเหล็ก** | ≤ s_max governing (ดูตาราง spacing ด้านบน) | §24.4.3.3, §24.3.2 |
 | **ต่อทับ** | ≥ 1.3 × ld (Class B splice) | §25.5.2 |
 | **fy ใช้ออกแบบ** | ≤DB28 → 390 MPa, DB32 → 490 MPa, cap 550 MPa | §20.2.2.4 |
 """)
         st.info(
-            "💡 **หมายเหตุ:** กรณีเลือก DB32 (fy=490 MPa) "
-            "ระยะห่างเหล็กถูกจำกัดเพิ่มเติมโดย §24.3.2 "
-            "ซึ่งอาจทำให้ต้องเพิ่มจำนวนเหล็กแม้ว่า As จะเพียงพอแล้ว")
+            "💡 **หมายเหตุ:** เหล็กล่างยังต้องตรวจเต็มค่า 0.0018Ag แยกจาก STM tie demand "
+            "ส่วนเหล็กบนในหน้านี้ใช้ครึ่งหนึ่งของ minimum gross-area ตามที่กำหนด")
 
     with t5:
         st.markdown("### Strut Forces")

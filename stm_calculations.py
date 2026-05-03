@@ -426,7 +426,8 @@ def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm,
 
 def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
                cover=75.0, beta_s=0.75, W_cap_kN=0.0,
-               fy_x=None, fy_y=None, x_bar_size=None, y_bar_size=None):
+               fy_x=None, fy_y=None, x_bar_size=None, y_bar_size=None,
+               cap_lx_mm=None, cap_ly_mm=None):
     """STM design per ACI 318-19 Ch. 23. No separate punching/beam shear
        check (per ACI §13.4.6.3 — covered by strut & node strength).
        W_cap_kN: self-weight of pile cap (kN), added to Pu for pile reactions.
@@ -527,8 +528,8 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
 
     fy_x_design = _design_fy(fy if fy_x is None else fy_x)
     fy_y_design = _design_fy(fy if fy_y is None else fy_y)
-    As_x = (Ftx_max * 1000.0) / (PHI_STM * fy_x_design) if fy_x_design > 0 else 0.0
-    As_y = (Fty_max * 1000.0) / (PHI_STM * fy_y_design) if fy_y_design > 0 else 0.0
+    As_x_stm = (Ftx_max * 1000.0) / (PHI_STM * fy_x_design) if fy_x_design > 0 else 0.0
+    As_y_stm = (Fty_max * 1000.0) / (PHI_STM * fy_y_design) if fy_y_design > 0 else 0.0
 
     # --- 3-pile resultant tie force (user request 2026-04-27) ---
     # For triangular caps, use vector resultant so reinforcement is
@@ -539,9 +540,26 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     if n == 3:
         F_res = math.hypot(Ftx_max, Fty_max)
         As_res = (F_res * 1000.0) / (PHI_STM * fy_x_design) if fy_x_design > 0 else 0.0
-        As_x = As_res
-        As_y = (F_res * 1000.0) / (PHI_STM * fy_y_design) if fy_y_design > 0 else 0.0
+        As_x_stm = As_res
+        As_y_stm = (F_res * 1000.0) / (PHI_STM * fy_y_design) if fy_y_design > 0 else 0.0
         is_3pile_resultant = True
+
+    if cap_lx_mm is None or cap_ly_mm is None:
+        xmin, xmax, ymin, ymax = _bbox(coords)
+        if cap_lx_mm is None:
+            cap_lx_mm = max(0.0, xmax - xmin)
+        if cap_ly_mm is None:
+            cap_ly_mm = max(0.0, ymax - ymin)
+
+    rho_bottom_min = 0.0018
+    Ag_x = float(cap_ly_mm) * h_cap
+    Ag_y = float(cap_lx_mm) * h_cap
+    As_x_min = rho_bottom_min * Ag_x
+    As_y_min = rho_bottom_min * Ag_y
+    As_x = max(As_x_stm, As_x_min)
+    As_y = max(As_y_stm, As_y_min)
+    As_x_governs = "STM tie" if As_x_stm >= As_x_min else "0.0018Ag minimum"
+    As_y_governs = "STM tie" if As_y_stm >= As_y_min else "0.0018Ag minimum"
 
     min_a = min(s["theta_deg"] for s in struts)
     a_ok = min_a >= 25.0
@@ -575,8 +593,17 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         "fy_y_design_mpa": fy_y_design,
         "x_bar_size": x_bar_size,
         "y_bar_size": y_bar_size,
+        "bottom_min_rho": rho_bottom_min,
+        "bottom_Ag_x_mm2": Ag_x,
+        "bottom_Ag_y_mm2": Ag_y,
+        "As_x_stm_required_mm2": As_x_stm,
+        "As_y_stm_required_mm2": As_y_stm,
+        "As_x_min_required_mm2": As_x_min,
+        "As_y_min_required_mm2": As_y_min,
         "As_x_required_mm2": As_x, "As_y_required_mm2": As_y,
         "As_required_mm2": max(As_x, As_y),
+        "As_x_governs": As_x_governs,
+        "As_y_governs": As_y_governs,
         "fce_strut_MPa": fce_s, "phi_Fns_kN": phi_Fns,
         "A_strut_eff_mm2": A_strut_eff,
         "F_strut_max_kN": Fs_max, "strut_DCR": strut_dcr,
@@ -598,71 +625,45 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
 
 def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
                               cover_mm=75.0, top_bar_size="DB20"):
-    """Minimum top-face reinforcement for STM pile cap — ACI 318-19.
+    """Minimum top-face reinforcement for an STM pile cap.
 
-    Three independent As checks + one spacing check are evaluated.
-
-    ─────────────────────────────────────────────────────────────────
-    (A) Temperature & Shrinkage  ─  ACI 318-19 §24.4.3.2 Table 24.4.3.2
-        ρ_ts = 0.0018              fy_d ≤ 420 MPa
-        ρ_ts = 0.0018 × 420 / fy_d  fy_d > 420 MPa  (min 0.0014)
-        As = ρ_ts × b × h_cap
-
-    (B) Minimum Flexural Reinforcement  ─  ACI 318-19 §9.6.1.2
-        ρ_flex = max(0.25√f'c / fy_d,  1.4 / fy_d)
-        As = ρ_flex × b × d_top
-        d_top = h_cap − cover − db_top/2
-
-    (C) Crack-Control for STM  ─  ACI 318-19 §23.5.1
-        Conservative: ρ_face ≥ 0.003 per orthogonal direction per face
-        As = 0.003 × b × h_cap
-
-    (D) Spacing Limit (crack-width control)  ─  ACI 318-19 §24.3.2
-        fs = (2/3) fy_d  (service stress, ACI default)
-        s ≤ min(380×(280/fs), 300×(280/fs)) mm
-        Combined with §24.4.3.3: s ≤ min(3h, 450 mm, s_crack)
-    ─────────────────────────────────────────────────────────────────
-    fy_d = min(REBAR_FY[top_bar_size], FY_CAP_MPA)
-         → fy_d ≤ 420 uses fy from REBAR_FY directly
-         → fy_d > 420 automatically adjusted per checks above
-         → hard cap at 550 MPa per ACI §20.2.2.4
+    Bottom reinforcement is checked against 0.0018Ag in each direction. The
+    top face uses half of that gross-area minimum: As_top = (0.0018Ag)/2.
     """
     # ── fy for design: bar-specific then ACI cap ──────────────────
     fy_bar  = REBAR_FY.get(top_bar_size, fy_mpa)   # from REBAR_FY dict
     fy_d    = min(fy_bar, FY_CAP_MPA)               # ACI §20.2.2.4 cap
     db_top  = REBAR_DIAM_MM.get(top_bar_size, 20.0) # nominal diameter
 
-    # ── (A) T&S ─ §24.4.3.2 Table 24.4.3.2 ─────────────────────
-    if fy_d <= 420.0:
-        rho_ts = 0.0018
-    else:
-        rho_ts = max(0.0014, 0.0018 * 420.0 / fy_d)
+    # ── User design basis: top mat = 1/2 of 0.0018Ag ────────────
+    rho_full_min = 0.0018
+    rho_top = rho_full_min / 2.0
+    Ag_x = ly_mm * h_cap_mm
+    Ag_y = lx_mm * h_cap_mm
+    As_full_min_x = rho_full_min * Ag_x
+    As_full_min_y = rho_full_min * Ag_y
+    As_top_x = rho_top * Ag_x
+    As_top_y = rho_top * Ag_y
 
-    As_ts_x = rho_ts * ly_mm * h_cap_mm
-    As_ts_y = rho_ts * lx_mm * h_cap_mm
-
-    # ── (B) Min Flexural As ─ §9.6.1.2 (ref. §13.3.3.1) ─────────
+    # ── (B) Min flexural As, reference only ─────────────────────
     d_top   = max(1.0, h_cap_mm - cover_mm - db_top / 2.0)
     rho_flex = max(0.25 * math.sqrt(fc_mpa) / fy_d,
                    1.4 / fy_d)
     As_flex_x = rho_flex * ly_mm * d_top
     As_flex_y = rho_flex * lx_mm * d_top
 
-    # ── (C) Crack-control ─ §23.5.1 (ρ_face ≥ 0.003) ────────────
+    # ── (C) STM distributed reinforcement, reference only ───────
     rho_cc  = 0.003
     As_cc_x = rho_cc * ly_mm * h_cap_mm
     As_cc_y = rho_cc * lx_mm * h_cap_mm
 
-    # ── Controlling As ────────────────────────────────────────────
-    As_top_x = max(As_ts_x, As_flex_x, As_cc_x)
-    As_top_y = max(As_ts_y, As_flex_y, As_cc_y)
-
-    def _governs(ts_v, flex_v, cc_v):
-        if cc_v >= ts_v and cc_v >= flex_v:
-            return "§23.5.1 crack-control  (ρ = 0.003)"
-        if flex_v >= ts_v:
-            return "§9.6.1.2 min-flex  (ρ = {:.4f})".format(rho_flex)
-        return "§24.4.3.2 T&S  (ρ = {:.4f})".format(rho_ts)
+    # ── Governing As ────────────────────────────────────────────
+    top_basis = "(0.0018Ag)/2 top-face minimum  (ρ = {:.4f})".format(rho_top)
+    top_note = (
+        "Top-face As is calculated as one-half of the 0.0018Ag minimum in "
+        "each direction. Bottom-face reinforcement is checked separately "
+        "against the full 0.0018Ag minimum and STM tie demand."
+    )
 
     # ── (D) Spacing limits ────────────────────────────────────────
     # §24.4.3.3: s ≤ min(3h, 450 mm)
@@ -672,7 +673,7 @@ def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
     s_crack_1 = 380.0 * (280.0 / fs_serv)   # eq. (a)
     s_crack_2 = 300.0 * (280.0 / fs_serv)   # eq. (b) — governs
     s_crack   = min(s_crack_1, s_crack_2)
-    s_max_top = min(s_ts_max, s_crack)       # combined governing spacing
+    s_max_top = min(s_ts_max, s_crack) if fy_d > 420.0 else s_ts_max
 
     # flag if fy_bar was capped
     fy_was_capped = (fy_bar > FY_CAP_MPA)
@@ -681,8 +682,8 @@ def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
         fy_note = ("fy_bar={:.0f} MPa capped to {:.0f} MPa "
                    "(ACI §20.2.2.4)".format(fy_bar, FY_CAP_MPA))
     elif fy_d > 420.0:
-        fy_note = ("fy={:.0f} MPa > 420 → ρ_ts reduced "
-                   "(§24.4.3.2); spacing checked §24.3.2".format(fy_d))
+        fy_note = ("fy={:.0f} MPa > 420 MPa "
+                   "(spacing checked §24.3.2)".format(fy_d))
     else:
         fy_note = "fy={:.0f} MPa ≤ 420 MPa".format(fy_d)
 
@@ -694,19 +695,37 @@ def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
         "db_top_mm":     db_top,
         "fy_note":       fy_note,
         # Governing ratios
-        "rho_ts":   rho_ts,
+        "rho_ts":   rho_full_min,
+        "rho_full_min": rho_full_min,
+        "rho_top":  rho_top,
         "rho_flex": rho_flex,
         "rho_cc":   rho_cc,
         "d_top_mm": d_top,
         # Per-check As (mm²)
-        "As_ts_x_mm2":   As_ts_x,   "As_ts_y_mm2":   As_ts_y,
+        "Ag_x_mm2": Ag_x, "Ag_y_mm2": Ag_y,
+        "As_ts_x_mm2":   As_full_min_x,
+        "As_ts_y_mm2":   As_full_min_y,
+        "As_full_min_x_mm2": As_full_min_x,
+        "As_full_min_y_mm2": As_full_min_y,
+        "As_top_min_x_mm2": As_top_x,
+        "As_top_min_y_mm2": As_top_y,
         "As_flex_x_mm2": As_flex_x, "As_flex_y_mm2": As_flex_y,
         "As_cc_x_mm2":   As_cc_x,   "As_cc_y_mm2":   As_cc_y,
         # Controlling
         "As_top_x_mm2": As_top_x,
         "As_top_y_mm2": As_top_y,
-        "governs_x": _governs(As_ts_x, As_flex_x, As_cc_x),
-        "governs_y": _governs(As_ts_y, As_flex_y, As_cc_y),
+        "governs_x": top_basis,
+        "governs_y": top_basis,
+        "top_design_basis": "HALF_0018AG",
+        "top_design_note": top_note,
+        "flex_reference_note": (
+            "Reference only unless a separate flexural check shows top-face "
+            "tension demand."
+        ),
+        "stm_cc_reference_note": (
+            "Reference only; evaluate distributed STM reinforcement with "
+            "actual strut and nodal geometry."
+        ),
         # Spacing limits (mm)
         "s_ts_max_mm":    s_ts_max,
         "s_crack_mm":     s_crack,
@@ -730,6 +749,8 @@ def check_rebar(bar_size, n_bars, As_req, fy_mpa=None,
         "fy_design_mpa": fy_design,
         "force_required_kN": force_req_kN,
         "force_capacity_kN": force_capacity,
+        "force_ok": force_ok,
+        "area_ok": As_prov >= As_req,
         "ok": As_prov >= As_req and force_ok,
     }
 
