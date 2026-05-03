@@ -15,6 +15,12 @@ def _normalize_col(c):
                 c.get("diam", 500.0))
     return ("Square", float(c), float(c), float(c))
 
+
+def _col_pos(c):
+    if isinstance(c, dict):
+        return float(c.get("x", 0.0)), float(c.get("y", 0.0))
+    return 0.0, 0.0
+
 def _normalize_pile(p):
     """Accept dict or scalar; return (section, bx, by, diam)."""
     if isinstance(p, dict):
@@ -57,18 +63,21 @@ def plot_layout_preview(coords, D, lx, ly, cx=0.0, cy=0.0,
     _add_cap(fig, lx, ly, cx, cy, cap_polygon)
 
     sec_c, cbx, cby, cdm = _normalize_col(col_size)
+    col_x, col_y = _col_pos(col_size)
     if sec_c == "Circular":
         fig.add_shape(type="circle",
-            x0=-cdm/2, y0=-cdm/2, x1=cdm/2, y1=cdm/2,
+            x0=col_x-cdm/2, y0=col_y-cdm/2,
+            x1=col_x+cdm/2, y1=col_y+cdm/2,
             fillcolor=COL, line={"color": "#D84315", "width": 2},
             layer="above")
     else:
         fig.add_shape(type="rect",
-            x0=-cbx/2, y0=-cby/2, x1=cbx/2, y1=cby/2,
+            x0=col_x-cbx/2, y0=col_y-cby/2,
+            x1=col_x+cbx/2, y1=col_y+cby/2,
             fillcolor=COL, line={"color": "#D84315", "width": 2},
             layer="above")
         
-    fig.add_annotation(x=0, y=0, text="<b>COL</b>", showarrow=False,
+    fig.add_annotation(x=col_x, y=col_y, text="<b>COL</b>", showarrow=False,
                        font={"color": "white", "size": 11})
 
     sec_p, pbx, pby, pdm = _normalize_pile(D)
@@ -119,6 +128,10 @@ def plot_layout_preview(coords, D, lx, ly, cx=0.0, cy=0.0,
                            showarrow=False,
                            font={"size": 10, "color": "#0277BD"})
 
+    x_min_view = min(cx-lx/2, col_x)
+    x_max_view = max(cx+lx/2, col_x)
+    y_min_view = min(cy-ly/2, col_y)
+    y_max_view = max(cy+ly/2, col_y)
     pad = max(lx, ly)*0.15 + 300
 
     # ── Center axes (crosshair at origin) ──────────────────────
@@ -176,10 +189,10 @@ def plot_layout_preview(coords, D, lx, ly, cx=0.0, cy=0.0,
     fig.update_layout(
         title="Pile Cap Layout - {} ({} piles)".format(shape, len(coords)),
         xaxis={"scaleanchor": "y", "scaleratio": 1, "title": "X (mm)",
-               "range": [cx-lx/2-pad, cx+lx/2+pad],
+               "range": [x_min_view-pad, x_max_view+pad],
                "gridcolor": "#ECEFF1"},
         yaxis={"title": "Y (mm)",
-               "range": [cy-ly/2-pad, cy+ly/2+pad],
+               "range": [y_min_view-pad, y_max_view+pad],
                "gridcolor": "#ECEFF1"},
         plot_bgcolor="white", paper_bgcolor="white",
         height=560, margin={"l": 40, "r": 40, "t": 60, "b": 40},
@@ -193,10 +206,11 @@ def plot_plan_view(coords, D, lx, ly, col_size, results,
                               "Result", cap_polygon,
                               pile_loads=results.get("pile_loads_kN"))
     # Struts (red dashed)
+    col_x, col_y = _col_pos(col_size)
     for idx, s in enumerate(results.get("struts", [])):
         x, y = s["coord"]
         fig.add_trace(go.Scatter(
-            x=[0, x], y=[0, y], mode="lines",
+            x=[col_x, x], y=[col_y, y], mode="lines",
             line={"color": STRUT, "width": 3, "dash": "dash"},
             hoverinfo="text",
             text=["F={:.1f}kN θ={:.1f}°".format(
@@ -230,7 +244,9 @@ def plot_elevation(coords, h_cap, D, col_size, results):
     xs = [c[0] for c in coords]
     sec_p, pbx, pby, pdm = _normalize_pile(D)
     pwid = pdm if sec_p == "Circular" else pbx
-    x_min, x_max = min(xs)-pwid, max(xs)+pwid
+    col_x, _col_y = _col_pos(col_size)
+    x_min = min(min(xs)-pwid, col_x-pwid)
+    x_max = max(max(xs)+pwid, col_x+pwid)
     cap_top = h_cap
 
     fig.add_shape(type="rect", x0=x_min-200, y0=0,
@@ -240,8 +256,8 @@ def plot_elevation(coords, h_cap, D, col_size, results):
                   layer="below")
     sec_c, cbx, cby, cdm = _normalize_col(col_size)
     cwid = cdm if sec_c == "Circular" else cbx
-    fig.add_shape(type="rect", x0=-cwid/2, y0=cap_top,
-                  x1=cwid/2, y1=cap_top+400,
+    fig.add_shape(type="rect", x0=col_x-cwid/2, y0=cap_top,
+                  x1=col_x+cwid/2, y1=cap_top+400,
                   fillcolor=COL,
                   line={"color": "#D84315", "width": 2})
 
@@ -251,7 +267,7 @@ def plot_elevation(coords, h_cap, D, col_size, results):
                       fillcolor=PILE,
                       line={"color": "#1F4E89", "width": 2})
         fig.add_trace(go.Scatter(
-            x=[0, x], y=[cap_top, pwid/2], mode="lines",
+            x=[col_x, x], y=[cap_top, pwid/2], mode="lines",
             line={"color": STRUT, "width": 4},
             hoverinfo="skip", showlegend=False))
 
@@ -463,13 +479,15 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
 
     # --- 3. Column (เสาคอนกรีต) ---
     sec_c, cbx, cby, cdm = _normalize_col(col_size)
+    col_x, col_y = _col_pos(col_size)
     if sec_c == "Circular":
         fig.add_trace(_cylinder_mesh(
-            0.0, 0.0, h_cap, h_cap+col_height, cdm/2,
+            col_x, col_y, h_cap, h_cap+col_height, cdm/2,
             "#FF8A65", opacity=0.9, lighting=LIGHTING_CONCRETE))
     else:
         fig.add_trace(_box_mesh(
-            -cbx/2, cbx/2, -cby/2, cby/2,
+            col_x-cbx/2, col_x+cbx/2,
+            col_y-cby/2, col_y+cby/2,
             h_cap, h_cap+col_height, "#FF8A65", 
             opacity=0.9, lighting=LIGHTING_CONCRETE))
 
@@ -512,7 +530,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
         else:
             dcr_color = STRUT_LOW
         fig.add_trace(go.Scatter3d(
-            x=[0, x], y=[0, y], z=[col_top_z, pile_top_z],
+            x=[col_x, x], y=[col_y, y], z=[col_top_z, pile_top_z],
             mode="lines",
             line=dict(color=dcr_color, width=8),
             hovertext=("Strut: F={:.0f}kN, θ={:.1f}°".format(

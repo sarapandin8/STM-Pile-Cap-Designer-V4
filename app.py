@@ -43,6 +43,7 @@ DEFAULTS = {
     "col_size": 500, "D": 600, "h_cap": 900,
     "col_section": "Square",
     "col_bx": 500.0, "col_by": 500.0, "col_diam": 500.0,
+    "col_x": 0.0, "col_y": 0.0,
     "pile_section": "Circular",
     "pile_bx": 600.0, "pile_by": 600.0, "pile_diam": 600.0,
     "preset_choice": "4-Pile (Square)",
@@ -129,6 +130,13 @@ with st.sidebar:
         else:
             st.number_input("Diameter D_c (mm)",
                             200.0, 2000.0, step=50.0, key="col_diam")
+        pc1, pc2 = st.columns(2)
+        pc1.number_input("Column X (mm)",
+                         -10000.0, 10000.0, step=50.0, key="col_x",
+                         help="Column/load point coordinate measured from layout origin.")
+        pc2.number_input("Column Y (mm)",
+                         -10000.0, 10000.0, step=50.0, key="col_y",
+                         help="Column/load point coordinate measured from layout origin.")
 
     with st.expander("Pile & Cap", expanded=True):
         st.selectbox("Pile section",
@@ -167,6 +175,8 @@ with st.sidebar:
         "bx": float(st.session_state.col_bx),
         "by": float(st.session_state.col_by),
         "diam": float(st.session_state.col_diam),
+        "x": float(st.session_state.col_x),
+        "y": float(st.session_state.col_y),
     }
     D = {
         "section": st.session_state.pile_section,
@@ -341,7 +351,8 @@ with left:
                         * (h_cap/1000.0) * 24.0 \
                         * st.session_state.wcap_uls_factor
         pile_loads_preview = compute_pile_reactions(
-            coords, Pu + W_cap_preview, Mux, Muy)
+            coords, Pu + W_cap_preview, Mux, Muy,
+            load_point=(col_size["x"], col_size["y"]))
         st.plotly_chart(
             plot_layout_preview(
                 coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
@@ -452,6 +463,12 @@ if "_stm_results" in st.session_state:
         st.warning(
             "Bottom bar size changed after the last calculation. "
             "Click Calculate STM again to refresh As demand with the selected fy.")
+    _calc_col = results.get("column_position", (0.0, 0.0))
+    if (abs(_calc_col[0] - col_size["x"]) > 1e-6 or
+            abs(_calc_col[1] - col_size["y"]) > 1e-6):
+        st.warning(
+            "Column position changed after the last calculation. "
+            "Click Calculate STM again to refresh reactions, struts, and ties.")
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Pu (column)",
@@ -464,6 +481,9 @@ if "_stm_results" in st.session_state:
               help="Pu + W_cap — used for pile reaction calculation")
     m4.metric("P_max (pile)",
               "{:.0f} kN".format(results["P_max_kN"]))
+    col_x_res, col_y_res = results.get("column_position", (0.0, 0.0))
+    st.caption("Column/load point = ({:.0f}, {:.0f}) mm".format(
+        col_x_res, col_y_res))
     m5, m6, m7, m8 = st.columns(4)
     m5.metric("Tie X max",
               "{:.0f} kN".format(results["F_tie_x_max_kN"]))
@@ -522,11 +542,15 @@ if "_stm_results" in st.session_state:
                            cap_cx, cap_cy, cap_polygon),
             use_container_width=True)
         st.markdown("**Pile Reactions** (rigid-cap formula)")
-        st.code("P_i = Pu/n + Mux·y_i / Σy_j² + Muy·x_i / Σx_j²")
+        st.code("P_i = Pu_total/n + Mux,c*y'_i / sum(y'_j^2) + Muy,c*x'_i / sum(x'_j^2)")
         rdf = pd.DataFrame([{
             "Pile": "P{}".format(i+1),
             "X (mm)": "{:.0f}".format(c[0]),
             "Y (mm)": "{:.0f}".format(c[1]),
+            "x' (mm)": "{:.0f}".format(
+                results.get("reaction_coords", [(0, 0)]*len(coords))[i][0]),
+            "y' (mm)": "{:.0f}".format(
+                results.get("reaction_coords", [(0, 0)]*len(coords))[i][1]),
             "P_i (kN)": "{:.1f}".format(P),
         } for i, (c, P) in enumerate(
             zip(coords, results["pile_loads_kN"]))])
@@ -893,6 +917,8 @@ As_req = 0.003 × b × h_cap
             rows.append({
                 "Strut": "S{}".format(i+1),
                 "X (mm)": round(s["coord"][0],1), "Y (mm)": round(s["coord"][1],1),
+                "dx_col (mm)": round(s.get("dx_from_col", s["coord"][0]), 1),
+                "dy_col (mm)": round(s.get("dy_from_col", s["coord"][1]), 1),
                 "P_i (kN)": round(s["P_i_kN"], 1),
                 "L (mm)": round(s["L_strut"], 0),
                 "θ (°)": round(s["theta_deg"], 1),
@@ -905,10 +931,10 @@ As_req = 0.003 × b × h_cap
         tie_rows = [
             {"Direction": "X",
              "Tie force (kN)": "{:.1f}".format(results["F_tie_x_max_kN"]),
-             "Formula": "Σ Pi·|x|/d (controlling side)"},
+             "Formula": "Σ Pi·|dx_col|/d (controlling side)"},
             {"Direction": "Y",
              "Tie force (kN)": "{:.1f}".format(results["F_tie_y_max_kN"]),
-             "Formula": "Σ Pi·|y|/d (controlling side)"},
+             "Formula": "Σ Pi·|dy_col|/d (controlling side)"},
         ]
         if results.get("is_3pile_resultant"):
             tie_rows.append({

@@ -15,13 +15,24 @@ def _norm_col(c):
                 c.get("diam", 500.0))
     return ("Square", float(c), float(c), float(c))
 
+
+def _col_pos(c):
+    if isinstance(c, dict):
+        return float(c.get("x", 0.0)), float(c.get("y", 0.0))
+    return 0.0, 0.0
+
 def _format_col(c):
     sec, bx, by, dm = _norm_col(c)
+    x, y = _col_pos(c)
     if sec == "Circular":
-        return "Circular, D = {:.0f} mm".format(dm)
-    if sec == "Rectangular":
-        return "Rectangular, {:.0f} x {:.0f} mm".format(bx, by)
-    return "Square, {:.0f} mm side".format(bx)
+        base = "Circular, D = {:.0f} mm".format(dm)
+    elif sec == "Rectangular":
+        base = "Rectangular, {:.0f} x {:.0f} mm".format(bx, by)
+    else:
+        base = "Square, {:.0f} mm side".format(bx)
+    if abs(x) > 1e-6 or abs(y) > 1e-6:
+        return "{} at ({:.0f}, {:.0f}) mm".format(base, x, y)
+    return base
 
 def _norm_pile(p):
     if isinstance(p, dict):
@@ -50,15 +61,16 @@ def _plot_plan(coords, D, lx, ly, cx, cy, col_size, cap_polygon, results):
             facecolor='#bdc3c7', edgecolor='#34495e',
             linewidth=2, alpha=0.4))
     sec_c, cbx, cby, cdm = _norm_col(col_size)
+    col_x, col_y = _col_pos(col_size)
     if sec_c == "Circular":
         ax.add_patch(patches.Circle(
-            (0, 0), cdm/2,
+            (col_x, col_y), cdm/2,
             facecolor='#FF8A65', edgecolor='#D84315', linewidth=2))
     else:
         ax.add_patch(patches.Rectangle(
-            (-cbx/2, -cby/2), cbx, cby,
+            (col_x-cbx/2, col_y-cby/2), cbx, cby,
             facecolor='#FF8A65', edgecolor='#D84315', linewidth=2))
-    ax.text(0, 0, 'COL', ha='center', va='center',
+    ax.text(col_x, col_y, 'COL', ha='center', va='center',
             color='white', fontsize=9, fontweight='bold')
     pile_loads = results.get("pile_loads_kN", [])
     sec_p, pbx, pby, pdm = _norm_pile(D)
@@ -79,10 +91,10 @@ def _plot_plan(coords, D, lx, ly, cx, cy, col_size, cap_polygon, results):
             lbl += '\n{:.0f}kN'.format(pile_loads[i-1])
         ax.text(x, y, lbl, ha='center', va='center',
                 color='white', fontsize=8, fontweight='bold')
-        ax.plot([0, x], [0, y], 'r--', linewidth=1.5, alpha=0.7)
+        ax.plot([col_x, x], [col_y, y], 'r--', linewidth=1.5, alpha=0.7)
     pad = max(lx, ly)*0.15 + 300
-    ax.set_xlim(cx-lx/2-pad, cx+lx/2+pad)
-    ax.set_ylim(cy-ly/2-pad, cy+ly/2+pad)
+    ax.set_xlim(min(cx-lx/2, col_x)-pad, max(cx+lx/2, col_x)+pad)
+    ax.set_ylim(min(cy-ly/2, col_y)-pad, max(cy+ly/2, col_y)+pad)
     ax.set_aspect('equal')
     ax.set_title('Plan View - Pile Cap Layout & Struts')
     ax.set_xlabel('X (mm)')
@@ -113,12 +125,13 @@ def _plot_bottom_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
             facecolor='#ecf0f1', edgecolor='#2c3e50', linewidth=2, alpha=0.5))
     # Column
     sec_c, cbx, cby, cdm = _norm_col(col_size)
+    col_x, col_y = _col_pos(col_size)
     if sec_c == "Circular":
-        ax.add_patch(patches.Circle((cx, cy), cdm/2,
+        ax.add_patch(patches.Circle((col_x, col_y), cdm/2,
             facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
     else:
         ax.add_patch(patches.Rectangle(
-            (cx-cbx/2, cy-cby/2), cbx, cby,
+            (col_x-cbx/2, col_y-cby/2), cbx, cby,
             facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
     # Piles
     sec_p, pbx, pby, pdm = _norm_pile(D)
@@ -177,8 +190,9 @@ def _plot_bottom_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
         xy=(cx, y_max+500), ha='center', fontsize=9, color='#C62828' if sy=='FAIL' else '#1B5E20')
 
     pad = max(lx, ly)*0.1 + 600
-    ax.set_xlim(cx-lx/2-pad, cx+lx/2+pad)
-    ax.set_ylim(cy-ly/2-pad-100, cy+ly/2+pad+600)
+    ax.set_xlim(min(cx-lx/2, col_x)-pad, max(cx+lx/2, col_x)+pad)
+    ax.set_ylim(min(cy-ly/2, col_y)-pad-100,
+                max(cy+ly/2, col_y)+pad+600)
     ax.set_aspect('equal')
     ax.legend(loc='lower center', fontsize=9, framealpha=0.85)
     ax.set_title('Bottom-Face Reinforcement Layout (Plan View)')
@@ -218,12 +232,13 @@ def _plot_top_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
             facecolor='#fef9e7', edgecolor='#2c3e50', linewidth=2, alpha=0.6))
     # Column
     sec_c, cbx, cby, cdm = _norm_col(col_size)
+    col_x, col_y = _col_pos(col_size)
     if sec_c == "Circular":
-        ax.add_patch(patches.Circle((cx, cy), cdm/2,
+        ax.add_patch(patches.Circle((col_x, col_y), cdm/2,
             facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
     else:
         ax.add_patch(patches.Rectangle(
-            (cx-cbx/2, cy-cby/2), cbx, cby,
+            (col_x-cbx/2, col_y-cby/2), cbx, cby,
             facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
     # Piles (outline only — top view)
     sec_p, pbx, pby, pdm = _norm_pile(D)
@@ -294,8 +309,9 @@ def _plot_top_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
             bbox=dict(boxstyle='round,pad=0.3', facecolor='#FFCCBC', alpha=0.8))
 
     pad = max(lx, ly)*0.1 + 600
-    ax.set_xlim(cx-lx/2-pad, cx+lx/2+pad)
-    ax.set_ylim(cy-ly/2-pad-100, cy+ly/2+pad+1100)
+    ax.set_xlim(min(cx-lx/2, col_x)-pad, max(cx+lx/2, col_x)+pad)
+    ax.set_ylim(min(cy-ly/2, col_y)-pad-100,
+                max(cy+ly/2, col_y)+pad+1100)
     ax.set_aspect('equal')
     ax.legend(loc='lower center', fontsize=9, framealpha=0.85)
     ax.set_title('Top-Face Minimum Reinforcement Layout (Plan View)')
@@ -315,7 +331,9 @@ def _plot_elev(coords, h_cap, D, col_size, results):
     xs = [c[0] for c in coords]
     sec_p, pbx, pby, pdm = _norm_pile(D)
     pwid = pdm if sec_p == "Circular" else pbx
-    x_min, x_max = min(xs)-pwid, max(xs)+pwid
+    col_x, _col_y = _col_pos(col_size)
+    x_min = min(min(xs)-pwid, col_x-pwid)
+    x_max = max(max(xs)+pwid, col_x+pwid)
     ax.add_patch(patches.Rectangle(
         (x_min-200, 0), x_max-x_min+400, h_cap,
         facecolor='#bdc3c7', edgecolor='#34495e',
@@ -323,13 +341,13 @@ def _plot_elev(coords, h_cap, D, col_size, results):
     sec_c, cbx, cby, cdm = _norm_col(col_size)
     cwid = cdm if sec_c == "Circular" else cbx
     ax.add_patch(patches.Rectangle(
-        (-cwid/2, h_cap), cwid, 400,
+        (col_x-cwid/2, h_cap), cwid, 400,
         facecolor='#FF8A65', edgecolor='#D84315', linewidth=2))
     for x, _ in coords:
         ax.add_patch(patches.Rectangle(
             (x-pwid/2, -600), pwid, 600,
             facecolor='#5B8DEF', edgecolor='#1F4E89', linewidth=2))
-        ax.plot([0, x], [h_cap, pwid/2], 'r-', linewidth=3, alpha=0.8)
+        ax.plot([col_x, x], [h_cap, pwid/2], 'r-', linewidth=3, alpha=0.8)
     if len(coords) >= 2:
         ax.plot([min(xs), max(xs)], [pwid/2, pwid/2], 'g-', linewidth=4)
         ax.text((min(xs)+max(xs))/2, pwid/2-150,
@@ -585,18 +603,19 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     p.add_run('Tie force principle (STM equilibrium): ').bold = True
     p.add_run(
         'F_tie = horizontal component of the diagonal strut. '
-        'For each pile at coordinate (x_i, y_i) with reaction P_i:')
+        'For each pile, use dx_i = x_pile - x_col and '
+        'dy_i = y_pile - y_col with reaction P_i:')
     p = doc.add_paragraph()
-    p.add_run('  F_tie_x,i = P_i × |x_i| / d_eff      '
-              'F_tie_y,i = P_i × |y_i| / d_eff')
+    p.add_run('  F_tie_x,i = P_i × |dx_i| / d_eff      '
+              'F_tie_y,i = P_i × |dy_i| / d_eff')
     p = doc.add_paragraph()
     p.add_run(
         'The total tie force per direction is the SUM over all piles '
         'contributing to that direction (ACI STM equilibrium, not the single maximum):')
     p = doc.add_paragraph()
-    p.add_run('  ΣF_tie_x = Σ (P_i × |x_i|) / d_eff    (i = all piles with x_i ≠ 0)')
+    p.add_run('  ΣF_tie_x = Σ (P_i × |dx_i|) / d_eff    (i = piles on controlling side)')
     p = doc.add_paragraph()
-    p.add_run('  ΣF_tie_y = Σ (P_i × |y_i|) / d_eff    (i = all piles with y_i ≠ 0)')
+    p.add_run('  ΣF_tie_y = Σ (P_i × |dy_i|) / d_eff    (i = piles on controlling side)')
 
     doc.add_heading('5.2 Per-Pile Tie Force Contribution', level=2)
     p = doc.add_paragraph()
@@ -614,12 +633,14 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         p_i = s['P_i_kN']
         ftx = s['F_tie_x_kN']
         fty = s['F_tie_y_kN']
+        dx_i = s.get('dx_from_col', x_i)
+        dy_i = s.get('dy_from_col', y_i)
         Ftx_sum += ftx; Fty_sum += fty
         pile_rows.append([
             'P{}'.format(i+1),
             '{:.0f}'.format(x_i), '{:.0f}'.format(y_i),
             '{:.1f}'.format(p_i),
-            '{:.0f}'.format(abs(x_i)), '{:.0f}'.format(abs(y_i)),
+            '{:.0f}'.format(dx_i), '{:.0f}'.format(dy_i),
             '{:.1f}'.format(ftx), '{:.1f}'.format(fty),
         ])
     pile_rows.append([
@@ -633,7 +654,8 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     ])
     _make_table(doc,
         ['Pile', 'x (mm)', 'y (mm)', 'P_i (kN)',
-         '|x| (mm)', '|y| (mm)', 'F_tie_x (kN)', 'F_tie_y (kN)'],
+         'dx from col (mm)', 'dy from col (mm)',
+         'F_tie_x (kN)', 'F_tie_y (kN)'],
         pile_rows)
 
     doc.add_heading('5.3 Tie Force Summary & As Calculation', level=2)

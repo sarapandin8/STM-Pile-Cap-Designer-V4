@@ -326,9 +326,7 @@ def fce_node(fc, bn=0.80):
 
 
 def _compute_pile_reactions_legacy(coords, Pu, Mux_kNm, Muy_kNm):
-    """Rigid-cap elastic distribution.
-       P_i = Pu/n + Mux*y_i/Σy² + Muy*x_i/Σx²
-       Mux/Muy in kN·m; coords in mm. Result in kN."""
+    """Legacy origin-based reaction distribution kept for comparison only."""
     n = len(coords)
     if n == 0:
         return []
@@ -352,13 +350,16 @@ def _design_fy(fy_mpa):
 
 
 def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm,
-                           about_centroid=True, return_info=False):
+                           about_centroid=True, return_info=False,
+                           load_point=(0.0, 0.0)):
     """Rigid-cap elastic distribution with centroid/eccentricity handling."""
     n = len(coords)
+    load_x, load_y = load_point
     if n == 0:
         if return_info:
             return [], {
                 "centroid": (0.0, 0.0),
+                "load_point": (load_x, load_y),
                 "reaction_coords": [],
                 "Mux_about_centroid_kNm": 0.0,
                 "Muy_about_centroid_kNm": 0.0,
@@ -376,8 +377,8 @@ def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm,
     sum_y2 = sum(y**2 for _, y in rel)
     Mux_kNmm = Mux_kNm * 1000.0
     Muy_kNmm = Muy_kNm * 1000.0
-    Mux_eff = Mux_kNmm - Pu * cy if about_centroid else Mux_kNmm
-    Muy_eff = Muy_kNmm - Pu * cx if about_centroid else Muy_kNmm
+    Mux_eff = Mux_kNmm + Pu * (load_y - cy) if about_centroid else Mux_kNmm
+    Muy_eff = Muy_kNmm + Pu * (load_x - cx) if about_centroid else Muy_kNmm
     out = []
     warnings = []
 
@@ -394,12 +395,14 @@ def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm,
         out.append(P)
 
     sum_p = sum(out)
+    target_mx = Mux_kNmm + Pu * load_y
+    target_my = Muy_kNmm + Pu * load_x
     mx_resisted = sum(p * y for p, (_, y) in zip(out, coords))
     my_resisted = sum(p * x for p, (x, _) in zip(out, coords))
-    residual_mx = (mx_resisted - Mux_kNmm) / 1000.0
-    residual_my = (my_resisted - Muy_kNmm) / 1000.0
-    tol_mx = max(1.0, 0.001 * max(abs(Mux_kNm), abs(Pu * cy / 1000.0)))
-    tol_my = max(1.0, 0.001 * max(abs(Muy_kNm), abs(Pu * cx / 1000.0)))
+    residual_mx = (mx_resisted - target_mx) / 1000.0
+    residual_my = (my_resisted - target_my) / 1000.0
+    tol_mx = max(1.0, 0.001 * max(abs(Mux_kNm), abs(Pu * load_y / 1000.0)))
+    tol_my = max(1.0, 0.001 * max(abs(Muy_kNm), abs(Pu * load_x / 1000.0)))
     equilibrium_ok = (
         abs(sum_p - Pu) <= max(1e-3, 1e-6 * abs(Pu)) and
         abs(residual_mx) <= tol_mx and
@@ -409,6 +412,7 @@ def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm,
     if return_info:
         return out, {
             "centroid": (cx, cy),
+            "load_point": (load_x, load_y),
             "reaction_coords": rel,
             "Mux_about_centroid_kNm": Mux_eff / 1000.0,
             "Muy_about_centroid_kNm": Muy_eff / 1000.0,
@@ -432,10 +436,18 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     if n < 2:
         return {"error": "Need at least 2 piles."}
 
+    if isinstance(col, dict):
+        col_x = float(col.get("x", 0.0))
+        col_y = float(col.get("y", 0.0))
+    else:
+        col_x = 0.0
+        col_y = 0.0
+
     # Pu_total = column load + pile cap self-weight
     Pu_total = Pu + W_cap_kN
     pile_loads, reaction_info = compute_pile_reactions(
-        coords, Pu_total, Mux, Muy, return_info=True)
+        coords, Pu_total, Mux, Muy, return_info=True,
+        load_point=(col_x, col_y))
     P_max = max(pile_loads)
     P_min = min(pile_loads)
     has_uplift = P_min < -1e-3
@@ -451,22 +463,26 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     struts = []
     for i, (x, y) in enumerate(coords):
         Pi = max(0.0, pile_loads[i])  # uplift handled separately
-        L_h = math.hypot(x, y)
+        dx = x - col_x
+        dy = y - col_y
+        L_h = math.hypot(dx, dy)
         L_s = math.hypot(L_h, d_eff)
         th = math.degrees(math.atan2(d_eff, L_h)) if L_h > 0 else 90.0
         F_s = Pi * (L_s/d_eff)
-        F_tx = Pi * abs(x)/d_eff
-        F_ty = Pi * abs(y)/d_eff
+        F_tx = Pi * abs(dx)/d_eff
+        F_ty = Pi * abs(dy)/d_eff
         struts.append({
             "coord": (x, y), "P_i_kN": pile_loads[i],
+            "column_coord": (col_x, col_y),
+            "dx_from_col": dx, "dy_from_col": dy,
             "L_h": L_h, "L_strut": L_s, "theta_deg": th,
             "F_strut_kN": F_s,
             "F_tie_x_kN": F_tx, "F_tie_y_kN": F_ty,
         })
 
     # PATCHED 2026-04-27: use Σ Pi·x/d instead of max per pile
-    xs = [c[0] for c in coords]
-    ys = [c[1] for c in coords]
+    xs = [c[0] - col_x for c in coords]
+    ys = [c[1] - col_y for c in coords]
 
     Ftx_right = sum(p * x / d_eff for p, x in zip(pile_loads, xs) if x > 0 and p > 0)
     Ftx_left = sum(p * -x / d_eff for p, x in zip(pile_loads, xs) if x < 0 and p > 0)
@@ -536,7 +552,9 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         "W_cap_kN": W_cap_kN,
         "Pu_total_kN": Pu_total,
         "pile_loads_kN": pile_loads,
+        "column_position": (col_x, col_y),
         "pile_group_centroid": reaction_info["centroid"],
+        "reaction_load_point": reaction_info["load_point"],
         "reaction_coords": reaction_info["reaction_coords"],
         "Mux_about_centroid_kNm": reaction_info["Mux_about_centroid_kNm"],
         "Muy_about_centroid_kNm": reaction_info["Muy_about_centroid_kNm"],
