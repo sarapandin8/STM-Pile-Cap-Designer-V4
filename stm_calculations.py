@@ -226,17 +226,39 @@ def get_truncated_triangle_equal(D, L=4000.0, w=600.0, e=None):
         "d_p": d_p, "pile_spacing": pile_spacing, "R": R,
     }
 
+def _pile_half_dims(D):
+    if isinstance(D, dict):
+        sec_p, pbx, pby, pdm = normalize_pile(D)
+    else:
+        sec_p, pbx, pby, pdm = normalize_pile(float(D))
+    if sec_p == "Circular":
+        return sec_p, pdm / 2.0, pdm / 2.0, pdm
+    if sec_p == "Square":
+        return sec_p, pbx / 2.0, pbx / 2.0, pbx
+    return sec_p, pbx / 2.0, pby / 2.0, min(pbx, pby)
+
+
+def _edge_clearance_same_pile_shape(dx, dy, D):
+    """Minimum edge-to-edge clearance between two identical pile sections."""
+    sec_p, hx, hy, diam = _pile_half_dims(D)
+    adx = abs(dx)
+    ady = abs(dy)
+    if sec_p == "Circular":
+        return math.hypot(dx, dy) - diam
+
+    sx = adx - 2.0 * hx
+    sy = ady - 2.0 * hy
+    if sx >= 0.0 and sy >= 0.0:
+        return math.hypot(sx, sy)
+    if sx >= 0.0:
+        return sx
+    if sy >= 0.0:
+        return sy
+    return max(sx, sy)
+
+
 def validate_pile_spacing(coords, D, mf=2.5, clear_min=500.0):
-    """ACI-style center-to-center spacing check.
-       Rule (per ACI / common practice for barrette piles):
-           required c/c distance  >=  mf * pile_min_dim
-       For Rectangular (Barrette) piles -> mf * shorter side.
-       For Circular / Square            -> mf * D (or side).
-       NOTE: anti-collision (edge-to-edge) is enforced inside
-       get_preset_layouts() by construction, so the validator
-       only checks the standard ACI distance rule.
-       'clear_min' kept in signature for API compatibility (unused)."""
-    _ = clear_min  # reserved for future use
+    """Check pile center spacing and true edge-to-edge clearance."""
     n = len(coords)
     if isinstance(D, dict):
         sec_p, pbx, pby, pdm = normalize_pile(D)
@@ -252,11 +274,20 @@ def validate_pile_spacing(coords, D, mf=2.5, clear_min=500.0):
             dx = coords[i][0] - coords[j][0]
             dy = coords[i][1] - coords[j][1]
             d = math.hypot(dx, dy)
-            pairs.append((i+1, j+1, d, d >= req-1e-3))
+            clear = _edge_clearance_same_pile_shape(dx, dy, D)
+            ctc_ok = d >= req-1e-3
+            clear_ok = clear >= clear_min-1e-3
+            ok = ctc_ok and clear_ok
+            pairs.append((i+1, j+1, d, clear, ctc_ok, clear_ok, ok))
             if d < mn:
                 mn = d
-            if d < req-1e-3:
-                viol.append((i+1, j+1, d))
+            if not ok:
+                reasons = []
+                if not ctc_ok:
+                    reasons.append("c/c < {:.0f} mm".format(req))
+                if not clear_ok:
+                    reasons.append("clear < {:.0f} mm".format(clear_min))
+                viol.append((i+1, j+1, d, clear, "; ".join(reasons)))
     if mn == float("inf"):
         mn = 0.0
     return (len(viol) == 0, mn, viol, req, pairs)
@@ -294,7 +325,7 @@ def fce_node(fc, bn=0.80):
     return 0.85 * bn * fc
 
 
-def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm):
+def _compute_pile_reactions_legacy(coords, Pu, Mux_kNm, Muy_kNm):
     """Rigid-cap elastic distribution.
        P_i = Pu/n + Mux*y_i/Σy² + Muy*x_i/Σx²
        Mux/Muy in kN·m; coords in mm. Result in kN."""
@@ -316,8 +347,82 @@ def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm):
     return out
 
 
+def _design_fy(fy_mpa):
+    return min(float(fy_mpa), FY_CAP_MPA)
+
+
+def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm,
+                           about_centroid=True, return_info=False):
+    """Rigid-cap elastic distribution with centroid/eccentricity handling."""
+    n = len(coords)
+    if n == 0:
+        if return_info:
+            return [], {
+                "centroid": (0.0, 0.0),
+                "reaction_coords": [],
+                "Mux_about_centroid_kNm": 0.0,
+                "Muy_about_centroid_kNm": 0.0,
+                "equilibrium_residual_Mux_kNm": 0.0,
+                "equilibrium_residual_Muy_kNm": 0.0,
+                "equilibrium_OK": True,
+                "warnings": [],
+            }
+        return []
+
+    cx = sum(c[0] for c in coords) / n if about_centroid else 0.0
+    cy = sum(c[1] for c in coords) / n if about_centroid else 0.0
+    rel = [(x - cx, y - cy) for x, y in coords]
+    sum_x2 = sum(x**2 for x, _ in rel)
+    sum_y2 = sum(y**2 for _, y in rel)
+    Mux_kNmm = Mux_kNm * 1000.0
+    Muy_kNmm = Muy_kNm * 1000.0
+    Mux_eff = Mux_kNmm - Pu * cy if about_centroid else Mux_kNmm
+    Muy_eff = Muy_kNmm - Pu * cx if about_centroid else Muy_kNmm
+    out = []
+    warnings = []
+
+    for (x, y) in rel:
+        P = Pu / n
+        if sum_y2 > 1e-6:
+            P += Mux_eff * y / sum_y2
+        elif abs(Mux_eff) > 1e-6:
+            warnings.append("Pile layout has no Y lever arm for Mux.")
+        if sum_x2 > 1e-6:
+            P += Muy_eff * x / sum_x2
+        elif abs(Muy_eff) > 1e-6:
+            warnings.append("Pile layout has no X lever arm for Muy.")
+        out.append(P)
+
+    sum_p = sum(out)
+    mx_resisted = sum(p * y for p, (_, y) in zip(out, coords))
+    my_resisted = sum(p * x for p, (x, _) in zip(out, coords))
+    residual_mx = (mx_resisted - Mux_kNmm) / 1000.0
+    residual_my = (my_resisted - Muy_kNmm) / 1000.0
+    tol_mx = max(1.0, 0.001 * max(abs(Mux_kNm), abs(Pu * cy / 1000.0)))
+    tol_my = max(1.0, 0.001 * max(abs(Muy_kNm), abs(Pu * cx / 1000.0)))
+    equilibrium_ok = (
+        abs(sum_p - Pu) <= max(1e-3, 1e-6 * abs(Pu)) and
+        abs(residual_mx) <= tol_mx and
+        abs(residual_my) <= tol_my
+    )
+
+    if return_info:
+        return out, {
+            "centroid": (cx, cy),
+            "reaction_coords": rel,
+            "Mux_about_centroid_kNm": Mux_eff / 1000.0,
+            "Muy_about_centroid_kNm": Muy_eff / 1000.0,
+            "equilibrium_residual_Mux_kNm": residual_mx,
+            "equilibrium_residual_Muy_kNm": residual_my,
+            "equilibrium_OK": equilibrium_ok,
+            "warnings": list(dict.fromkeys(warnings)),
+        }
+    return out
+
+
 def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
-               cover=75.0, beta_s=0.75, W_cap_kN=0.0):
+               cover=75.0, beta_s=0.75, W_cap_kN=0.0,
+               fy_x=None, fy_y=None, x_bar_size=None, y_bar_size=None):
     """STM design per ACI 318-19 Ch. 23. No separate punching/beam shear
        check (per ACI §13.4.6.3 — covered by strut & node strength).
        W_cap_kN: self-weight of pile cap (kN), added to Pu for pile reactions.
@@ -329,7 +434,8 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
 
     # Pu_total = column load + pile cap self-weight
     Pu_total = Pu + W_cap_kN
-    pile_loads = compute_pile_reactions(coords, Pu_total, Mux, Muy)
+    pile_loads, reaction_info = compute_pile_reactions(
+        coords, Pu_total, Mux, Muy, return_info=True)
     P_max = max(pile_loads)
     P_min = min(pile_loads)
     has_uplift = P_min < -1e-3
@@ -377,15 +483,17 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         A_s = pile_area(sec_p, pbx, pby, pdm)
     else:
         A_s = math.pi * (float(D)/2.0)**2
+    A_strut_eff = A_s
+    A_node_pile_eff = A_s
     fce_s = fce_strut(fc, bs=beta_s)
-    Fns = fce_s * A_s / 1000.0
+    Fns = fce_s * A_strut_eff / 1000.0
     phi_Fns = PHI_STM * Fns
     strut_dcr = Fs_max/phi_Fns if phi_Fns > 0 else float("inf")
 
     # Node type at pile: CTT when ties exist in both X and Y (n>=4 pile caps)
     # ACI 318-19 Table 23.9.2a: CCT βn=0.80, CTT βn=0.60
     bn_pile = 0.60 if n >= 4 else 0.80
-    Pn_pile = fce_node(fc, bn_pile) * A_s / 1000.0
+    Pn_pile = fce_node(fc, bn_pile) * A_node_pile_eff / 1000.0
     phi_Pn_pile = PHI_BEARING * Pn_pile
     bear_dcr = P_max/phi_Pn_pile if phi_Pn_pile > 0 else float("inf")
 
@@ -401,8 +509,10 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     phi_Pn_col = PHI_BEARING * Pn_col
     col_dcr = Pu/phi_Pn_col if phi_Pn_col > 0 else float("inf")  # Pu only — W_cap not through column node
 
-    As_x = (Ftx_max * 1000.0) / (PHI_STM * fy) if fy > 0 else 0.0
-    As_y = (Fty_max * 1000.0) / (PHI_STM * fy) if fy > 0 else 0.0
+    fy_x_design = _design_fy(fy if fy_x is None else fy_x)
+    fy_y_design = _design_fy(fy if fy_y is None else fy_y)
+    As_x = (Ftx_max * 1000.0) / (PHI_STM * fy_x_design) if fy_x_design > 0 else 0.0
+    As_y = (Fty_max * 1000.0) / (PHI_STM * fy_y_design) if fy_y_design > 0 else 0.0
 
     # --- 3-pile resultant tie force (user request 2026-04-27) ---
     # For triangular caps, use vector resultant so reinforcement is
@@ -412,8 +522,9 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     As_res = 0.0
     if n == 3:
         F_res = math.hypot(Ftx_max, Fty_max)
-        As_res = (F_res * 1000.0) / (PHI_STM * fy) if fy > 0 else 0.0
-        As_x = As_y = As_res
+        As_res = (F_res * 1000.0) / (PHI_STM * fy_x_design) if fy_x_design > 0 else 0.0
+        As_x = As_res
+        As_y = (F_res * 1000.0) / (PHI_STM * fy_y_design) if fy_y_design > 0 else 0.0
         is_3pile_resultant = True
 
     min_a = min(s["theta_deg"] for s in struts)
@@ -425,6 +536,14 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         "W_cap_kN": W_cap_kN,
         "Pu_total_kN": Pu_total,
         "pile_loads_kN": pile_loads,
+        "pile_group_centroid": reaction_info["centroid"],
+        "reaction_coords": reaction_info["reaction_coords"],
+        "Mux_about_centroid_kNm": reaction_info["Mux_about_centroid_kNm"],
+        "Muy_about_centroid_kNm": reaction_info["Muy_about_centroid_kNm"],
+        "reaction_equilibrium_OK": reaction_info["equilibrium_OK"],
+        "reaction_equilibrium_residual_Mux_kNm": reaction_info["equilibrium_residual_Mux_kNm"],
+        "reaction_equilibrium_residual_Muy_kNm": reaction_info["equilibrium_residual_Muy_kNm"],
+        "reaction_warnings": reaction_info["warnings"],
         "P_max_kN": P_max, "P_min_kN": P_min,
         "has_uplift": has_uplift,
         "d_effective_mm": d_eff, "struts": struts,
@@ -432,16 +551,30 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         "F_tie_max_kN": max(Ftx_max, Fty_max),
         "F_tie_res_kN": F_res,
         "is_3pile_resultant": is_3pile_resultant,
+        "F_tie_x_design_kN": F_res if is_3pile_resultant else Ftx_max,
+        "F_tie_y_design_kN": F_res if is_3pile_resultant else Fty_max,
+        "fy_x_design_mpa": fy_x_design,
+        "fy_y_design_mpa": fy_y_design,
+        "x_bar_size": x_bar_size,
+        "y_bar_size": y_bar_size,
         "As_x_required_mm2": As_x, "As_y_required_mm2": As_y,
         "As_required_mm2": max(As_x, As_y),
         "fce_strut_MPa": fce_s, "phi_Fns_kN": phi_Fns,
+        "A_strut_eff_mm2": A_strut_eff,
         "F_strut_max_kN": Fs_max, "strut_DCR": strut_dcr,
         "bn_pile": bn_pile,
+        "A_node_pile_eff_mm2": A_node_pile_eff,
         "phi_Pn_bearing_kN": phi_Pn_pile, "bearing_DCR": bear_dcr,
         "phi_Pn_column_kN": phi_Pn_col, "column_DCR": col_dcr,
         "min_strut_angle_deg": min_a, "angle_OK": a_ok,
+        "capacity_model": "PRELIMINARY_FULL_PILE_HEAD_AREA",
+        "capacity_model_note": (
+            "Preliminary STM check: strut and pile-node capacities use the "
+            "full pile head area as the effective concrete area. Final design "
+            "should verify nodal-zone and strut geometry explicitly."),
         "overall_OK": (strut_dcr <= 1 and bear_dcr <= 1 and
-                       col_dcr <= 1 and a_ok),
+                       col_dcr <= 1 and a_ok and not has_uplift and
+                       reaction_info["equilibrium_OK"]),
     }
 
 
@@ -564,15 +697,22 @@ def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
     }
 
 
-def check_rebar(bar_size, n_bars, As_req):
+def check_rebar(bar_size, n_bars, As_req, fy_mpa=None,
+                force_req_kN=None, phi=PHI_STM):
     A_per = REBAR_DB[bar_size]
     As_prov = A_per * n_bars
     ratio = (As_prov/As_req) if As_req > 0 else float("inf")
+    fy_design = _design_fy(REBAR_FY.get(bar_size, fy_mpa if fy_mpa else 420.0))
+    force_capacity = phi * As_prov * fy_design / 1000.0
+    force_ok = True if force_req_kN is None else force_capacity >= force_req_kN
     return {
         "bar_size": bar_size, "n_bars": n_bars,
         "As_per_bar": A_per, "As_provided": As_prov,
         "As_required": As_req, "ratio": ratio,
-        "ok": As_prov >= As_req,
+        "fy_design_mpa": fy_design,
+        "force_required_kN": force_req_kN,
+        "force_capacity_kN": force_capacity,
+        "ok": As_prov >= As_req and force_ok,
     }
 
 
@@ -593,8 +733,9 @@ BAR_WEIGHT_PER_M = {
 }
 
 
-def optimize_rebar(As_req, bar_length_mm, sizes=None):
-    """Pick min-weight (bar_size, n) combo satisfying As_req.
+def optimize_rebar(As_req, bar_length_mm, sizes=None,
+                   force_req_kN=None, phi=PHI_STM):
+    """Pick min-weight (bar_size, n) combo satisfying As/force demand.
        Returns (best_dict, all_options_list)."""
     if sizes is None:
         sizes = list(REBAR_DB.keys())
@@ -602,19 +743,27 @@ def optimize_rebar(As_req, bar_length_mm, sizes=None):
     best = None
     for sz in sizes:
         A = REBAR_DB[sz]
-        if As_req <= 0:
+        fy_design = _design_fy(REBAR_FY.get(sz, 420.0))
+        As_req_for_size = As_req
+        if force_req_kN is not None and fy_design > 0:
+            As_req_for_size = force_req_kN * 1000.0 / (phi * fy_design)
+        if As_req_for_size <= 0:
             n = 2
         else:
-            n = max(2, int(math.ceil(As_req / A)))
+            n = max(2, int(math.ceil(As_req_for_size / A)))
         wt_per = BAR_WEIGHT_PER_M[sz]
         total_wt = n * (bar_length_mm / 1000.0) * wt_per
+        force_capacity = phi * n * A * fy_design / 1000.0
         opt = {
             "bar_size": sz, "n_bars": n,
             "As_per_bar": A, "As_provided": n * A,
-            "As_required": As_req,
+            "As_required": As_req_for_size,
+            "fy_design_mpa": fy_design,
+            "force_required_kN": force_req_kN,
+            "force_capacity_kN": force_capacity,
             "bar_length_mm": bar_length_mm,
             "weight_kg": total_wt,
-            "ok": (n * A) >= As_req,
+            "ok": (n * A) >= As_req_for_size,
         }
         options.append(opt)
         if opt["ok"] and (best is None or total_wt < best["weight_kg"]):

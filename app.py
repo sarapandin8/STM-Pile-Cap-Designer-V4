@@ -328,6 +328,7 @@ with st.sidebar:
 # ===== Validation =====
 ok_sp, mn_sp, viol, mn_req, pairs = validate_pile_spacing(
     coords, D, mf=2.5, clear_min=st.session_state.clear_min)
+mn_clear = min((p[3] for p in pairs), default=0.0)
 
 # ===== Layout & Status =====
 left, right = st.columns([3, 2], gap="large")
@@ -365,20 +366,25 @@ with right:
                   "{:.0f} mm".format(mn_req),
                   help="ACI rule: 2.5 × pile_min_dim "
                        "(shorter side for Barrette piles)")
+        c1.metric("Min clear", "{:.0f} mm".format(mn_clear))
+        c2.metric("Required clear", "{:.0f} mm".format(st.session_state.clear_min))
         if ok_sp:
             st.success(
-                "All pile-pair distances ≥ 2.5 × D_short "
-                "({:.0f} mm)".format(mn_req))
+                "All pile-pair distances and edge clearances satisfy limits.")
         else:
-            st.error("{} ACI spacing violation(s) "
-                     "(c/c < 2.5 × D_short)".format(len(viol)))
+            st.error("{} pile spacing/clearance violation(s).".format(len(viol)))
+            for _i, _j, _d, _clear, _reason in viol[:5]:
+                st.caption("P{}-P{}: {}".format(_i, _j, _reason))
         st.markdown("**Pile-Pair Distances** (d = √(Δx² + Δy²))")
         if pairs:
             pdf = pd.DataFrame([{
                 "Pair": "P{}-P{}".format(i, j),
                 "d (mm)": "{:.0f}".format(d),
+                "Clear (mm)": "{:.0f}".format(clear),
+                "c/c OK?": "✅" if ctc_ok else "❌",
+                "Clear OK?": "✅" if clear_ok else "❌",
                 "OK?": "✅" if ok else "❌",
-            } for (i, j, d, ok) in pairs])
+            } for (i, j, d, clear, ctc_ok, clear_ok, ok) in pairs])
             st.dataframe(pdf, use_container_width=True, hide_index=True,
                          height=min(35*len(pairs)+38, 240))
 
@@ -397,14 +403,18 @@ if calc_btn:
     if not coords:
         st.error("Cannot calculate: no piles.")
     elif not ok_sp:
-        st.error("Cannot calculate: spacing violations.")
+        st.error("Cannot calculate: spacing or pile-clearance violations.")
     else:
         # น้ำหนักตัวเอง Pile Cap (ULS): W = Area × h × γc × γ_ULS
         # Area = พื้นที่จริงของ cap (Shoelace สำหรับ polygon, Lx×Ly สำหรับสี่เหลี่ยม)
         _W_cap_nom = _cap_area_m2(cap_polygon, cap_lx, cap_ly) * (h_cap/1000.0) * 24.0
         W_cap_kN = _W_cap_nom * st.session_state.wcap_uls_factor
+        _fy_x = min(REBAR_FY.get(x_bar, fy), FY_CAP_MPA)
+        _fy_y = min(REBAR_FY.get(y_bar, fy), FY_CAP_MPA)
         _res = stm_design(coords, Pu, Mux, Muy, fc, fy, D,
-                          col_size, h_cap, cover, W_cap_kN=W_cap_kN)
+                          col_size, h_cap, cover, W_cap_kN=W_cap_kN,
+                          fy_x=_fy_x, fy_y=_fy_y,
+                          x_bar_size=x_bar, y_bar_size=y_bar)
         if "error" in _res:
             st.error(_res["error"])
             st.session_state.pop("_stm_results", None)
@@ -426,6 +436,22 @@ if "_stm_results" in st.session_state:
         st.warning("\u26a0\ufe0f Uplift detected (P_min = {:.1f} kN). "
                    "Provide tension piles or anchorage.".format(
                        results["P_min_kN"]))
+    if not results.get("reaction_equilibrium_OK", True):
+        st.error(
+            "Pile reaction equilibrium cannot satisfy the applied moments. "
+            "Residuals: Mux={:.1f} kN·m, Muy={:.1f} kN·m.".format(
+                results.get("reaction_equilibrium_residual_Mux_kNm", 0.0),
+                results.get("reaction_equilibrium_residual_Muy_kNm", 0.0)))
+    for _warning in results.get("reaction_warnings", []):
+        st.warning(_warning)
+    if results.get("capacity_model_note"):
+        st.info(results["capacity_model_note"])
+    if (results.get("x_bar_size") and
+            (results.get("x_bar_size") != x_bar or
+             results.get("y_bar_size") != y_bar)):
+        st.warning(
+            "Bottom bar size changed after the last calculation. "
+            "Click Calculate STM again to refresh As demand with the selected fy.")
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Pu (column)",
@@ -450,15 +476,21 @@ if "_stm_results" in st.session_state:
               help="ACI requires ≥ 25°")
 
     x_chk = check_rebar(x_bar, int(x_n),
-                        results["As_x_required_mm2"])
+                        results["As_x_required_mm2"],
+                        fy_mpa=results.get("fy_x_design_mpa", fy),
+                        force_req_kN=results.get("F_tie_x_design_kN"))
     y_chk = check_rebar(y_bar, int(y_n),
-                        results["As_y_required_mm2"])
+                        results["As_y_required_mm2"],
+                        fy_mpa=results.get("fy_y_design_mpa", fy),
+                        force_req_kN=results.get("F_tie_y_design_kN"))
 
     # Auto-optimize
     opt_x, opts_x = optimize_rebar(
-        results["As_x_required_mm2"], cap_lx)
+        results["As_x_required_mm2"], cap_lx,
+        force_req_kN=results.get("F_tie_x_design_kN"))
     opt_y, opts_y = optimize_rebar(
-        results["As_y_required_mm2"], cap_ly)
+        results["As_y_required_mm2"], cap_ly,
+        force_req_kN=results.get("F_tie_y_design_kN"))
 
     # Anchorage check
     # use D/4 (inner face of CCT node) not D/2
@@ -466,9 +498,9 @@ if "_stm_results" in st.session_state:
     avail_hook_x = avail_str_x - cover
     avail_str_y = min(e_top, e_bot) + _gov_max/4.0 - cover
     avail_hook_y = avail_str_y - cover
-    anch_x = check_anchorage(x_bar, fc, fy,
+    anch_x = check_anchorage(x_bar, fc, results.get("fy_x_design_mpa", fy),
                              avail_str_x, avail_hook_x)
-    anch_y = check_anchorage(y_bar, fc, fy,
+    anch_y = check_anchorage(y_bar, fc, results.get("fy_y_design_mpa", fy),
                              avail_str_y, avail_hook_y)
 
     # Top-face reinforcement — always recomputed fresh (dropdown-safe)
@@ -534,6 +566,8 @@ if "_stm_results" in st.session_state:
                  "{:.1f}".format(tie_x_display),
              "As req (mm²)":
                  "{:.0f}".format(results["As_x_required_mm2"]),
+             "fy used (MPa)":
+                 "{:.0f}".format(results.get("fy_x_design_mpa", fy)),
              "Selected": "{}-{}".format(int(x_n), x_bar),
              "As prov (mm²)":
                  "{:.0f}".format(x_chk["As_provided"]),
@@ -544,6 +578,8 @@ if "_stm_results" in st.session_state:
                  "{:.1f}".format(tie_y_display),
              "As req (mm²)":
                  "{:.0f}".format(results["As_y_required_mm2"]),
+             "fy used (MPa)":
+                 "{:.0f}".format(results.get("fy_y_design_mpa", fy)),
              "Selected": "{}-{}".format(int(y_n), y_bar),
              "As prov (mm²)":
                  "{:.0f}".format(y_chk["As_provided"]),
@@ -553,7 +589,7 @@ if "_stm_results" in st.session_state:
         st.dataframe(req_df, use_container_width=True,
                      hide_index=True)
         if results.get("is_3pile_resultant"):
-            st.info("ฐาน 3 เข็ม: As คำนวณจาก F_res = √(Ftx²+Fty²) = {:.1f} kN → ใส่เหล็กเท่ากันทั้ง X และ Y".format(results["F_tie_res_kN"]))
+            st.info("ฐาน 3 เข็ม: แรงออกแบบใช้ F_res = √(Ftx²+Fty²) = {:.1f} kN; As แต่ละทิศคำนวณด้วย fy ของเหล็กที่เลือกในทิศนั้น".format(results["F_tie_res_kN"]))
 
         st.markdown("### 🤖 Auto-Optimized Rebar (Min Weight)")
         col_o1, col_o2, col_o3 = st.columns([2, 2, 1])
@@ -883,7 +919,7 @@ As_req = 0.003 × b × h_cap
         tie_df = pd.DataFrame(tie_rows)
         st.dataframe(tie_df, use_container_width=True, hide_index=True)
         if results.get("is_3pile_resultant"):
-            st.info("ฐาน 3 เข็ม: ใช้แรงลัพธ์ F_res เพื่อให้เหล็กเท่ากันทั้งสองทิศ ไม่ขึ้นกับการหมุนพิกัด")
+            st.info("ฐาน 3 เข็ม: ใช้แรงลัพธ์ F_res เพื่อลดผลของการหมุนพิกัด แล้วคำนวณ As แยกตาม fy ของเหล็กแต่ละทิศ")
         st.caption("หมายเหตุ: ตาราง Strut แสดงแรงอัดในแต่ละ strut เท่านั้น ส่วนแรงดึงที่ใช้ออกแบบเหล็กคือค่า Tie ด้านบน")
 
         st.markdown("### Capacity Checks")
@@ -919,6 +955,15 @@ As_req = 0.003 × b × h_cap
              "Capacity (kN)": "-", "Demand (kN)": "-", "DCR": "-",
              "Status": "✅" if results["angle_OK"] else "❌"},
         ])
+        extra_checks = [
+            {"Check": "Uplift / tension pile",
+             "Capacity (kN)": "-", "Demand (kN)": "{:.0f}".format(results["P_min_kN"]),
+             "DCR": "-", "Status": "✅" if not results["has_uplift"] else "❌"},
+            {"Check": "Reaction equilibrium",
+             "Capacity (kN)": "-", "Demand (kN)": "-", "DCR": "-",
+             "Status": "✅" if results.get("reaction_equilibrium_OK", True) else "❌"},
+        ]
+        ck = pd.concat([ck, pd.DataFrame(extra_checks)], ignore_index=True)
         st.dataframe(ck, use_container_width=True, hide_index=True)
 
     # Export Report

@@ -442,18 +442,30 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     p = doc.add_paragraph(
         "Distance computed by: d_ij = sqrt((x_i - x_j)^2 + (y_i - y_j)^2)")
     rows = [["P{}-P{}".format(i, j), "{:.0f}".format(d),
-             "OK" if ok else "FAIL"] for (i, j, d, ok) in pairs]
-    _make_table(doc, ['Pair', 'Distance (mm)', 'Status'], rows)
+             "{:.0f}".format(clear),
+             "OK" if ctc_ok else "FAIL",
+             "OK" if clear_ok else "FAIL",
+             "OK" if ok else "FAIL"]
+            for (i, j, d, clear, ctc_ok, clear_ok, ok) in pairs]
+    _make_table(doc, ['Pair', 'Distance (mm)', 'Clear (mm)',
+                      'c/c', 'Clear', 'Status'], rows)
 
     doc.add_heading('2.2 Pile Reactions (Rigid-Cap Elastic)', level=2)
     p = doc.add_paragraph()
     p.add_run('Formula: ').bold = True
-    p.add_run("P_i = Pu_total/n + (Mux × y_i) / Σy_j² + (Muy × x_i) / Σx_j²")
+    p.add_run("P_i = Pu_total/n + (Mux,c × y'_i) / Σy'_j² + "
+              "(Muy,c × x'_i) / Σx'_j²")
     p = doc.add_paragraph()
     p.add_run('where Pu_total = Pu + W_cap = {:.1f} + {:.1f} = {:.1f} kN'.format(
         inputs['Pu'],
         inputs.get('W_cap_kN', 0.0),
         inputs.get('Pu_total_kN', inputs['Pu'])))
+    _cgx, _cgy = results.get('pile_group_centroid', (0.0, 0.0))
+    p = doc.add_paragraph()
+    p.add_run(
+        "Pile group centroid = ({:.0f}, {:.0f}) mm. Coordinates x', y' "
+        "are measured about this centroid; Mux,c and Muy,c include column "
+        "load eccentricity for custom layouts.".format(_cgx, _cgy))
     rows = [["P{}".format(i+1),
              "{:.0f}".format(c[0]),
              "{:.0f}".format(c[1]),
@@ -520,11 +532,17 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     p = doc.add_paragraph()
     p.add_run('Strength reduction factors: ').bold = True
     p.add_run("φ_STM = 0.75 (ACI 21.2.1), φ_bearing = 0.75 (ACI 21.2.1(e))")
+    if results.get('capacity_model_note'):
+        p = doc.add_paragraph()
+        rr = p.add_run('Preliminary capacity model: ')
+        rr.bold = True
+        p.add_run(results['capacity_model_note'])
 
     # Node type: CTT (βn=0.60) for n>=4 piles; CCT (βn=0.80) for n<4 piles
     _n_pile = results.get('n_piles', 4)
     _bn_pile = results.get('bn_pile', 0.60 if _n_pile >= 4 else 0.80)
-    _node_label = "CTT, βn={:.2f}".format(_bn_pile)
+    _node_type = "CTT" if _n_pile >= 4 else "CCT"
+    _node_label = "{}, βn={:.2f}".format(_node_type, _bn_pile)
 
     rows = [
         ["Strut compression (φFns)",
@@ -546,6 +564,12 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
             results['min_strut_angle_deg']),
          "-", "-", "-",
          "OK" if results['angle_OK'] else "FAIL"],
+        ["Uplift / tension pile",
+         "-", "{:.0f}".format(results['P_min_kN']), "-",
+         "OK" if not results.get('has_uplift') else "FAIL"],
+        ["Reaction equilibrium",
+         "-", "-", "-",
+         "OK" if results.get('reaction_equilibrium_OK', True) else "FAIL"],
     ]
     _make_table(doc, ['Check', 'Capacity (kN)',
                       'Demand (kN)', 'DCR', 'Status'], rows)
@@ -576,8 +600,10 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
 
     doc.add_heading('5.2 Per-Pile Tie Force Contribution', level=2)
     p = doc.add_paragraph()
-    p.add_run('d_eff = {:.0f} mm    φ = 0.75    fy = {:.0f} MPa'.format(
-        results['d_effective_mm'], inputs['fy'])).bold = True
+    p.add_run('d_eff = {:.0f} mm    φ = 0.75    fy_x = {:.0f} MPa    fy_y = {:.0f} MPa'.format(
+        results['d_effective_mm'],
+        results.get('fy_x_design_mpa', inputs['fy']),
+        results.get('fy_y_design_mpa', inputs['fy']))).bold = True
 
     # Build per-pile table
     struts = results.get('struts', [])
@@ -598,8 +624,12 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         ])
     pile_rows.append([
         'TOTAL', '—', '—', '—', '—', '—',
-        '{:.1f}'.format(results['As_x_required_mm2'] * 0.75 * inputs['fy'] / 1000),
-        '{:.1f}'.format(results['As_y_required_mm2'] * 0.75 * inputs['fy'] / 1000),
+        '{:.1f}'.format(results.get(
+            'F_tie_x_design_kN',
+            results['As_x_required_mm2'] * 0.75 * inputs['fy'] / 1000)),
+        '{:.1f}'.format(results.get(
+            'F_tie_y_design_kN',
+            results['As_y_required_mm2'] * 0.75 * inputs['fy'] / 1000)),
     ])
     _make_table(doc,
         ['Pile', 'x (mm)', 'y (mm)', 'P_i (kN)',
@@ -608,6 +638,14 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
 
     doc.add_heading('5.3 Tie Force Summary & As Calculation', level=2)
     is_3p = results.get('is_3pile_resultant', False)
+    fyx = results.get('fy_x_design_mpa', inputs['fy'])
+    fyy = results.get('fy_y_design_mpa', inputs['fy'])
+    ftx_design = results.get(
+        'F_tie_x_design_kN',
+        results['As_x_required_mm2'] * 0.75 * fyx / 1000)
+    fty_design = results.get(
+        'F_tie_y_design_kN',
+        results['As_y_required_mm2'] * 0.75 * fyy / 1000)
     if is_3p:
         p = doc.add_paragraph()
         p.add_run('3-Pile resultant tie: ').bold = True
@@ -618,35 +656,36 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         p.add_run('  F_res = √(ΣFtx² + ΣFty²) = {:.1f} kN'.format(
             results['F_tie_res_kN']))
         p = doc.add_paragraph()
-        p.add_run('  As_x = As_y = F_res / (φ × fy) = '
+        p.add_run('  As_x = F_res / (φ × fy_x) = '
+                  '{:.1f} / (0.75 × {:.0f}) = {:.0f} mm²; '
+                  'As_y = F_res / (φ × fy_y) = '
                   '{:.1f} / (0.75 × {:.0f}) = {:.0f} mm²'.format(
-                      results['F_tie_res_kN'], inputs['fy'],
-                      results['As_x_required_mm2']))
+                      results['F_tie_res_kN'], fyx,
+                      results['As_x_required_mm2'],
+                      results['F_tie_res_kN'], fyy,
+                      results['As_y_required_mm2']))
     else:
         p = doc.add_paragraph()
         p.add_run('X-direction: ').bold = True
         p.add_run(
             'ΣF_tie_x = {:.1f} kN  →  '
             'As_x = {:.1f} / (0.75 × {:.0f}) = {:.0f} mm²'.format(
-                results['As_x_required_mm2'] * 0.75 * inputs['fy'] / 1000,
-                results['As_x_required_mm2'] * 0.75 * inputs['fy'] / 1000,
-                inputs['fy'], results['As_x_required_mm2']))
+                ftx_design, ftx_design, fyx, results['As_x_required_mm2']))
         p = doc.add_paragraph()
         p.add_run('Y-direction: ').bold = True
         p.add_run(
             'ΣF_tie_y = {:.1f} kN  →  '
             'As_y = {:.1f} / (0.75 × {:.0f}) = {:.0f} mm²'.format(
-                results['As_y_required_mm2'] * 0.75 * inputs['fy'] / 1000,
-                results['As_y_required_mm2'] * 0.75 * inputs['fy'] / 1000,
-                inputs['fy'], results['As_y_required_mm2']))
+                fty_design, fty_design, fyy, results['As_y_required_mm2']))
 
     doc.add_heading('5.4 Selected Reinforcement', level=2)
     _make_table(doc,
-        ['Direction', 'ΣF_tie (kN)', 'As req (mm²)', 'Selected',
+        ['Direction', 'ΣF_tie (kN)', 'As req (mm²)', 'fy used (MPa)', 'Selected',
          'As prov (mm²)', 'Ratio', 'Status'],
         [["X",
           "{:.1f}".format(results['F_tie_x_max_kN'] if not is_3p else results['F_tie_res_kN']),
           "{:.0f}".format(results['As_x_required_mm2']),
+          "{:.0f}".format(fyx),
           "{}-{}".format(x_chk['n_bars'], x_chk['bar_size']),
           "{:.0f}".format(x_chk['As_provided']),
           "{:.2f}".format(x_chk['ratio']),
@@ -654,6 +693,7 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
          ["Y",
           "{:.1f}".format(results['F_tie_y_max_kN'] if not is_3p else results['F_tie_res_kN']),
           "{:.0f}".format(results['As_y_required_mm2']),
+          "{:.0f}".format(fyy),
           "{}-{}".format(y_chk['n_bars'], y_chk['bar_size']),
           "{:.0f}".format(y_chk['As_provided']),
           "{:.2f}".format(y_chk['ratio']),
