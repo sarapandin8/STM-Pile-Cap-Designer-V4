@@ -26,6 +26,111 @@ def _cap_area_m2(cap_polygon, cap_lx, cap_ly):
     return (cap_lx / 1000.0) * (cap_ly / 1000.0)
 
 
+def _design_recommendations(results, x_chk=None, y_chk=None,
+                            anch_x=None, anch_y=None,
+                            opt_x=None, opt_y=None, cover=75.0):
+    recs = []
+
+    def add(issue, reason, action):
+        recs.append({"Issue": issue, "Why": reason, "Recommended adjustment": action})
+
+    if results.get("strut_DCR", 0.0) > 1.0:
+        dcr = results["strut_DCR"]
+        add(
+            "Strut compression",
+            "Strut DCR = {:.2f} > 1.00".format(dcr),
+            "Increase pile size/strut bearing area or concrete strength; "
+            "also consider increasing cap thickness or adding piles to reduce pile reactions.")
+
+    if results.get("bearing_DCR", 0.0) > 1.0:
+        dcr = results["bearing_DCR"]
+        add(
+            "Pile nodal bearing",
+            "Bearing DCR = {:.2f} > 1.00".format(dcr),
+            "Increase pile head area, concrete strength, or number of piles; "
+            "move the column/load point closer to the pile-group centroid if eccentricity is high.")
+
+    if results.get("column_DCR", 0.0) > 1.0:
+        dcr = results["column_DCR"]
+        add(
+            "Column nodal bearing",
+            "Column DCR = {:.2f} > 1.00".format(dcr),
+            "Increase column size or concrete strength, or reduce factored column load.")
+
+    if not results.get("angle_OK", True):
+        bad = [s for s in results.get("struts", []) if s.get("theta_deg", 90.0) < 25.0]
+        if bad:
+            import math
+            req_d = max(s["L_h"] * math.tan(math.radians(25.0)) for s in bad)
+            req_h = req_d + cover + 12.5
+            action = ("Increase cap thickness to about {:.0f} mm or more, "
+                      "or reduce horizontal strut length by moving piles/column closer.").format(req_h)
+        else:
+            action = "Increase cap thickness or reduce pile-to-column horizontal distance."
+        add(
+            "Strut angle",
+            "Minimum strut angle = {:.1f} deg < 25 deg".format(
+                results.get("min_strut_angle_deg", 0.0)),
+            action)
+
+    if results.get("has_uplift", False):
+        add(
+            "Uplift",
+            "Minimum pile reaction P_min = {:.1f} kN".format(
+                results.get("P_min_kN", 0.0)),
+            "Provide tension pile/anchorage, add piles on the uplift side, "
+            "reduce moment/eccentricity, or move the column/load point closer to the pile-group centroid.")
+
+    if not results.get("reaction_equilibrium_OK", True):
+        add(
+            "Reaction equilibrium",
+            "The pile layout cannot resist the applied load/moment with available lever arms.",
+            "Add pile rows/columns in the missing lever-arm direction, revise custom coordinates, "
+            "or move the column/load point back inside the effective pile group.")
+
+    if x_chk is not None and not x_chk.get("ok", True):
+        if opt_x:
+            action = "Use at least {}-{} in X direction, or increase bar count/size.".format(
+                opt_x["n_bars"], opt_x["bar_size"])
+        else:
+            action = "Increase X-direction bar count or select a larger bar size."
+        add(
+            "Bottom tie steel X",
+            "Provided As ratio = {:.2f}".format(x_chk.get("ratio", 0.0)),
+            action)
+
+    if y_chk is not None and not y_chk.get("ok", True):
+        if opt_y:
+            action = "Use at least {}-{} in Y direction, or increase bar count/size.".format(
+                opt_y["n_bars"], opt_y["bar_size"])
+        else:
+            action = "Increase Y-direction bar count or select a larger bar size."
+        add(
+            "Bottom tie steel Y",
+            "Provided As ratio = {:.2f}".format(y_chk.get("ratio", 0.0)),
+            action)
+
+    if anch_x is not None and not anch_x.get("ok", True):
+        add(
+            "Anchorage X",
+            "Available development length is less than required.",
+            "Increase cap edge distance in X, use standard hooks/headed bars, or use smaller diameter bars.")
+
+    if anch_y is not None and not anch_y.get("ok", True):
+        add(
+            "Anchorage Y",
+            "Available development length is less than required.",
+            "Increase cap edge distance in Y, use standard hooks/headed bars, or use smaller diameter bars.")
+
+    if not recs and not results.get("overall_OK", True):
+        add(
+            "Design status",
+            "The design is marked FAIL but no single dominant trigger was isolated.",
+            "Review the Detail tab; check spacing, uplift, selected reinforcement, anchorage, and load direction.")
+
+    return recs
+
+
 from stm_visualization import (
     plot_layout_preview, plot_plan_view,
     plot_elevation, plot_rebar_layout, plot_3d_view,
@@ -551,6 +656,16 @@ if "_stm_results" in st.session_state:
         h_cap_mm=h_cap, fy_mpa=fy, fc_mpa=fc,
         cover_mm=cover,
         top_bar_size=st.session_state.get("top_bar_size", "DB20"))
+
+    recs = _design_recommendations(
+        results, x_chk=x_chk, y_chk=y_chk,
+        anch_x=anch_x, anch_y=anch_y,
+        opt_x=opt_x, opt_y=opt_y, cover=cover)
+    if recs and (not results["overall_OK"] or not x_chk["ok"] or
+                 not y_chk["ok"] or not anch_x["ok"] or not anch_y["ok"]):
+        st.warning("แนวทางปรับแบบให้ผ่านเกณฑ์")
+        st.dataframe(pd.DataFrame(recs), use_container_width=True,
+                     hide_index=True)
 
     t1, t2, t6, t3, t4, t7, t5 = st.tabs([
         "📊 Plan", "📈 Elevation", "🎲 3D View",
