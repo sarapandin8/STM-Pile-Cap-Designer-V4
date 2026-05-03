@@ -600,6 +600,11 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     p.add_run('Governing formula (ACI §23.7.2): ').bold = True
     p.add_run('As ≥ F_tie / (φ × fy)    where  φ = 0.75 (ACI Table 21.2.1)')
     p = doc.add_paragraph()
+    p.add_run('Minimum flexural reinforcement check: ').bold = True
+    p.add_run(
+        'Bottom-face reinforcement in each direction is also checked against '
+        'As_min = 0.0018Ag. Therefore As_req = max(As_STM, 0.0018Ag).')
+    p = doc.add_paragraph()
     p.add_run('Tie force principle (STM equilibrium): ').bold = True
     p.add_run(
         'F_tie = horizontal component of the diagonal strut. '
@@ -668,6 +673,18 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     fty_design = results.get(
         'F_tie_y_design_kN',
         results['As_y_required_mm2'] * 0.75 * fyy / 1000)
+    As_x_stm = results.get(
+        'As_x_stm_required_mm2',
+        ftx_design * 1000.0 / (0.75 * fyx) if fyx > 0 else 0.0)
+    As_y_stm = results.get(
+        'As_y_stm_required_mm2',
+        fty_design * 1000.0 / (0.75 * fyy) if fyy > 0 else 0.0)
+    As_x_min = results.get(
+        'As_x_min_required_mm2',
+        0.0018 * inputs['cap_ly'] * inputs['h_cap'])
+    As_y_min = results.get(
+        'As_y_min_required_mm2',
+        0.0018 * inputs['cap_lx'] * inputs['h_cap'])
     if is_3p:
         p = doc.add_paragraph()
         p.add_run('3-Pile resultant tie: ').bold = True
@@ -683,41 +700,62 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
                   'As_y = F_res / (φ × fy_y) = '
                   '{:.1f} / (0.75 × {:.0f}) = {:.0f} mm²'.format(
                       results['F_tie_res_kN'], fyx,
-                      results['As_x_required_mm2'],
+                      As_x_stm,
                       results['F_tie_res_kN'], fyy,
-                      results['As_y_required_mm2']))
+                      As_y_stm))
     else:
         p = doc.add_paragraph()
         p.add_run('X-direction: ').bold = True
         p.add_run(
             'ΣF_tie_x = {:.1f} kN  →  '
-            'As_x = {:.1f} / (0.75 × {:.0f}) = {:.0f} mm²'.format(
-                ftx_design, ftx_design, fyx, results['As_x_required_mm2']))
+            'As_STM,x = {:.1f} / (0.75 × {:.0f}) = {:.0f} mm²'.format(
+                ftx_design, ftx_design, fyx, As_x_stm))
         p = doc.add_paragraph()
         p.add_run('Y-direction: ').bold = True
         p.add_run(
             'ΣF_tie_y = {:.1f} kN  →  '
-            'As_y = {:.1f} / (0.75 × {:.0f}) = {:.0f} mm²'.format(
-                fty_design, fty_design, fyy, results['As_y_required_mm2']))
+            'As_STM,y = {:.1f} / (0.75 × {:.0f}) = {:.0f} mm²'.format(
+                fty_design, fty_design, fyy, As_y_stm))
+
+    _make_table(doc,
+        ['Direction', 'As_STM (mm²)', 'As_min = 0.0018Ag (mm²)',
+         'As_req = max (mm²)', 'Governing'],
+        [['X',
+          '{:.0f}'.format(As_x_stm),
+          '{:.0f}'.format(As_x_min),
+          '{:.0f}'.format(results['As_x_required_mm2']),
+          results.get('As_x_governs', '—')],
+         ['Y',
+          '{:.0f}'.format(As_y_stm),
+          '{:.0f}'.format(As_y_min),
+          '{:.0f}'.format(results['As_y_required_mm2']),
+          results.get('As_y_governs', '—')]])
 
     doc.add_heading('5.4 Selected Reinforcement', level=2)
     _make_table(doc,
-        ['Direction', 'ΣF_tie (kN)', 'As req (mm²)', 'fy used (MPa)', 'Selected',
-         'As prov (mm²)', 'Ratio', 'Status'],
+        ['Direction', 'ΣF_tie (kN)', 'As req (mm²)', 'Governing',
+         'fy used (MPa)', 'Selected', 'As prov (mm²)', 'Min OK',
+         'STM OK', 'Ratio', 'Status'],
         [["X",
           "{:.1f}".format(results['F_tie_x_max_kN'] if not is_3p else results['F_tie_res_kN']),
           "{:.0f}".format(results['As_x_required_mm2']),
+          results.get('As_x_governs', '—'),
           "{:.0f}".format(fyx),
           "{}-{}".format(x_chk['n_bars'], x_chk['bar_size']),
           "{:.0f}".format(x_chk['As_provided']),
+          "OK" if x_chk['As_provided'] >= As_x_min else "FAIL",
+          "OK" if x_chk.get('force_ok', True) else "FAIL",
           "{:.2f}".format(x_chk['ratio']),
           "OK" if x_chk['ok'] else "FAIL"],
          ["Y",
           "{:.1f}".format(results['F_tie_y_max_kN'] if not is_3p else results['F_tie_res_kN']),
           "{:.0f}".format(results['As_y_required_mm2']),
+          results.get('As_y_governs', '—'),
           "{:.0f}".format(fyy),
           "{}-{}".format(y_chk['n_bars'], y_chk['bar_size']),
           "{:.0f}".format(y_chk['As_provided']),
+          "OK" if y_chk['As_provided'] >= As_y_min else "FAIL",
+          "OK" if y_chk.get('force_ok', True) else "FAIL",
           "{:.2f}".format(y_chk['ratio']),
           "OK" if y_chk['ok'] else "FAIL"]])
 
@@ -802,63 +840,28 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         p = doc.add_paragraph()
         p.add_run(
             "The top face of the pile cap is not part of the STM load path "
-            "but requires minimum reinforcement per three ACI 318-19 criteria:"
+            "and is designed here using one-half of the gross-area minimum "
+            "reinforcement: As_top = (0.0018Ag)/2 in each direction."
         )
 
-        doc.add_heading('6.1 Temperature & Shrinkage — §24.4.3.2 Table 24.4.3.2',
+        doc.add_heading('6.1 Top-Face Minimum — (0.0018Ag)/2',
                         level=2)
         p = doc.add_paragraph()
-        p.add_run("ρ_ts = {:.4f}  ".format(tr["rho_ts"])).bold = True
-        p.add_run("(fy ≤ 420 MPa → ρ = 0.0018)")
-        _make_table(doc, ['Direction', 'b (mm)', 'h (mm)',
-                          'ρ_ts', 'As_req (mm²)'], [
+        p.add_run("ρ_top = 0.0018 / 2 = {:.4f}".format(
+            tr.get("rho_top", 0.0009))).bold = True
+        _make_table(doc, ['Direction', 'b (mm)', 'Ag = b×h (mm²)',
+                          '0.0018Ag (mm²)', 'As_top = (0.0018Ag)/2 (mm²)'], [
             ['X', '{:.0f}'.format(inputs['cap_ly']),
-             str(inputs['h_cap']), '{:.4f}'.format(tr['rho_ts']),
-             '{:.0f}'.format(tr['As_ts_x_mm2'])],
+             '{:.0f}'.format(tr.get('Ag_x_mm2', inputs['cap_ly'] * inputs['h_cap'])),
+             '{:.0f}'.format(tr.get('As_full_min_x_mm2', tr.get('As_ts_x_mm2', 0))),
+             '{:.0f}'.format(tr['As_top_x_mm2'])],
             ['Y', '{:.0f}'.format(inputs['cap_lx']),
-             str(inputs['h_cap']), '{:.4f}'.format(tr['rho_ts']),
-             '{:.0f}'.format(tr['As_ts_y_mm2'])],
+             '{:.0f}'.format(tr.get('Ag_y_mm2', inputs['cap_lx'] * inputs['h_cap'])),
+             '{:.0f}'.format(tr.get('As_full_min_y_mm2', tr.get('As_ts_y_mm2', 0))),
+             '{:.0f}'.format(tr['As_top_y_mm2'])],
         ])
 
-        doc.add_heading('6.2 Min Flexural Reinforcement — §9.6.1.2 (ref. §13.3.3.1)',
-                        level=2)
-        p = doc.add_paragraph()
-        p.add_run("ρ_flex = max(0.25√f'c/fy, 1.4/fy) = "
-                  "{:.4f}".format(tr['rho_flex'])).bold = True
-        p.add_run(
-            "  |  d_top = h − cover − db/2 "
-            "= {} − {} − 12.5 = {:.0f} mm  (assumed DB25)".format(
-                inputs['h_cap'], inputs['cover'], tr['d_top_mm']))
-        _make_table(doc, ['Direction', 'b (mm)', 'd_top (mm)',
-                          'ρ_flex', 'As_req (mm²)'], [
-            ['X', '{:.0f}'.format(inputs['cap_ly']),
-             '{:.0f}'.format(tr['d_top_mm']),
-             '{:.4f}'.format(tr['rho_flex']),
-             '{:.0f}'.format(tr['As_flex_x_mm2'])],
-            ['Y', '{:.0f}'.format(inputs['cap_lx']),
-             '{:.0f}'.format(tr['d_top_mm']),
-             '{:.4f}'.format(tr['rho_flex']),
-             '{:.0f}'.format(tr['As_flex_y_mm2'])],
-        ])
-
-        doc.add_heading('6.3 Crack-Control for STM — §23.5.1 (ρ_face ≥ 0.003)',
-                        level=2)
-        p = doc.add_paragraph()
-        p.add_run(
-            "Eq. 23.5.1: Σ(Asi/bsi)·sinγi ≥ 0.003 per orthogonal direction. "
-            "Conservative simplification: ρ_face ≥ 0.003 each face."
-        )
-        _make_table(doc, ['Direction', 'b (mm)', 'h (mm)',
-                          'ρ_cc', 'As_req (mm²)'], [
-            ['X', '{:.0f}'.format(inputs['cap_ly']),
-             str(inputs['h_cap']), '0.0030',
-             '{:.0f}'.format(tr['As_cc_x_mm2'])],
-            ['Y', '{:.0f}'.format(inputs['cap_lx']),
-             str(inputs['h_cap']), '0.0030',
-             '{:.0f}'.format(tr['As_cc_y_mm2'])],
-        ])
-
-        doc.add_heading('6.4 Governing Top-Face Reinforcement', level=2)
+        doc.add_heading('6.2 Governing Top-Face Reinforcement', level=2)
         _s_gov = tr.get("s_max_top_mm", min(3*inputs['h_cap'], 450))
         _s_ts  = tr.get("s_ts_max_mm",  min(3*inputs['h_cap'], 450))
         _s_cr  = tr.get("s_crack_mm",   9999)
@@ -873,13 +876,16 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
             tr.get("fy_note", "")))
 
         _make_table(doc,
-                    ['Direction', 'As_top req (mm²)', 'Governing Check'],
+                    ['Direction', 'As_top req (mm²)', 'Design Basis'],
                     [['X', '{:.0f}'.format(tr['As_top_x_mm2']),
                       tr['governs_x']],
                      ['Y', '{:.0f}'.format(tr['As_top_y_mm2']),
                       tr['governs_y']]])
+        p = doc.add_paragraph()
+        p.add_run("Note: ").bold = True
+        p.add_run(tr.get("top_design_note", "Top-face As is governed by the minimum top mat."))
 
-        doc.add_heading('6.5 Spacing Limits', level=2)
+        doc.add_heading('6.3 Spacing Limits', level=2)
         _make_table(doc,
                     ['Check', 's_max (mm)', 'Active'],
                     [['§24.4.3.3  min(3h={:.0f}, 450)'.format(3*inputs['h_cap']),

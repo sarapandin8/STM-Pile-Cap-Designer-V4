@@ -551,11 +551,13 @@ if calc_btn:
         W_cap_kN = _W_cap_nom * st.session_state.wcap_uls_factor
         _fy_x = min(REBAR_FY.get(x_bar, fy), FY_CAP_MPA)
         _fy_y = min(REBAR_FY.get(y_bar, fy), FY_CAP_MPA)
+        _col_design = dict(col_size)
+        _col_design["_cap_lx_mm"] = cap_lx
+        _col_design["_cap_ly_mm"] = cap_ly
         _res = stm_design(coords, Pu, Mux, Muy, fc, fy, D,
-                          col_size, h_cap, cover, W_cap_kN=W_cap_kN,
+                          _col_design, h_cap, cover, W_cap_kN=W_cap_kN,
                           fy_x=_fy_x, fy_y=_fy_y,
-                          x_bar_size=x_bar, y_bar_size=y_bar,
-                          cap_lx_mm=cap_lx, cap_ly_mm=cap_ly)
+                          x_bar_size=x_bar, y_bar_size=y_bar)
         if "error" in _res:
             st.error(_res["error"])
             st.session_state.pop("_stm_results", None)

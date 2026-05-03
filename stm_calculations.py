@@ -440,6 +440,10 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     if isinstance(col, dict):
         col_x = float(col.get("x", 0.0))
         col_y = float(col.get("y", 0.0))
+        if cap_lx_mm is None:
+            cap_lx_mm = col.get("_cap_lx_mm")
+        if cap_ly_mm is None:
+            cap_ly_mm = col.get("_cap_ly_mm")
     else:
         col_x = 0.0
         col_y = 0.0
