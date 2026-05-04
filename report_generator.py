@@ -5,8 +5,55 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.patches import Polygon as MplPolygon
 from docx import Document
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Cm, Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+
+BRAND_BLUE = RGBColor(0x1F, 0x4E, 0x79)
+OK_GREEN = RGBColor(0x2E, 0x7D, 0x32)
+FAIL_RED = RGBColor(0xC6, 0x28, 0x28)
+MUTED_GRAY = RGBColor(0x66, 0x66, 0x66)
+
+
+def _shade_cell(cell, fill):
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shd = tc_pr.find(qn('w:shd'))
+    if shd is None:
+        shd = OxmlElement('w:shd')
+        tc_pr.append(shd)
+    shd.set(qn('w:fill'), fill)
+
+
+def _apply_report_style(doc):
+    section = doc.sections[0]
+    section.top_margin = Cm(1.6)
+    section.bottom_margin = Cm(1.6)
+    section.left_margin = Cm(1.8)
+    section.right_margin = Cm(1.8)
+
+    normal = doc.styles['Normal']
+    normal.font.name = 'Arial'
+    normal._element.get_or_add_rPr().rFonts.set(qn('w:eastAsia'), 'Arial')
+    normal.font.size = Pt(9.5)
+
+    for style_name, size, color in [
+        ('Title', 18, BRAND_BLUE),
+        ('Heading 1', 13, BRAND_BLUE),
+        ('Heading 2', 10.5, BRAND_BLUE),
+    ]:
+        style = doc.styles[style_name]
+        style.font.name = 'Arial'
+        style._element.get_or_add_rPr().rFonts.set(qn('w:eastAsia'), 'Arial')
+        style.font.size = Pt(size)
+        style.font.color.rgb = color
+        style.font.bold = True
+
+    footer = section.footer.paragraphs[0]
+    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = footer.add_run('STM Pile Cap Design Calculation | ACI 318-19')
+    run.font.size = Pt(8)
+    run.font.color.rgb = MUTED_GRAY
 
 def _norm_col(c):
     if isinstance(c, dict):
@@ -257,26 +304,76 @@ def _plot_top_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
         ax.text(px, py, 'P{}'.format(i), ha='center', va='center',
                 color='#5D6D7E', fontsize=8, zorder=4)
 
-    xs_p = [c[0] for c in coords]; ys_p = [c[1] for c in coords]
-    x_min = min(xs_p) - hw_x;  x_max = max(xs_p) + hw_x
-    y_min = min(ys_p) - hw_y;  y_max = max(ys_p) + hw_y
+    if cap_polygon:
+        poly = list(cap_polygon)
+        xs_cap = [p[0] for p in poly]
+        ys_cap = [p[1] for p in poly]
+        cap_x_min, cap_x_max = min(xs_cap), max(xs_cap)
+        cap_y_min, cap_y_max = min(ys_cap), max(ys_cap)
+    else:
+        poly = [
+            (cx - lx/2, cy - ly/2),
+            (cx + lx/2, cy - ly/2),
+            (cx + lx/2, cy + ly/2),
+            (cx - lx/2, cy + ly/2),
+        ]
+        cap_x_min, cap_x_max = cx - lx/2, cx + lx/2
+        cap_y_min, cap_y_max = cy - ly/2, cy + ly/2
+
+    edge_inset = min(max(float(cover_mm), 20.0), 0.45 * min(lx, ly))
+
+    def _linspace(a, b, n):
+        if n <= 1 or b <= a:
+            return [(a + b) / 2.0]
+        return [a + (b - a) * k / (n - 1) for k in range(n)]
+
+    def _horizontal_segment(y):
+        hits = []
+        for k, (x1, y1) in enumerate(poly):
+            x2, y2 = poly[(k + 1) % len(poly)]
+            if abs(y2 - y1) < 1e-9:
+                continue
+            if (y >= min(y1, y2)) and (y < max(y1, y2)):
+                t = (y - y1) / (y2 - y1)
+                hits.append(x1 + t * (x2 - x1))
+        hits.sort()
+        if len(hits) >= 2:
+            return hits[0] + edge_inset, hits[-1] - edge_inset
+        return cap_x_min + edge_inset, cap_x_max - edge_inset
+
+    def _vertical_segment(x):
+        hits = []
+        for k, (x1, y1) in enumerate(poly):
+            x2, y2 = poly[(k + 1) % len(poly)]
+            if abs(x2 - x1) < 1e-9:
+                continue
+            if (x >= min(x1, x2)) and (x < max(x1, x2)):
+                t = (x - x1) / (x2 - x1)
+                hits.append(y1 + t * (y2 - y1))
+        hits.sort()
+        if len(hits) >= 2:
+            return hits[0] + edge_inset, hits[-1] - edge_inset
+        return cap_y_min + edge_inset, cap_y_max - edge_inset
+
+    x_min = cap_x_min + edge_inset; x_max = cap_x_max - edge_inset
+    y_min = cap_y_min + edge_inset; y_max = cap_y_max - edge_inset
 
     # Top X-bars (horizontal, amber)
-    if n_x > 1:
-        ys_bar = [y_min + (y_max-y_min)*k/(n_x-1) for k in range(n_x)]
-    else:
-        ys_bar = [(y_min+y_max)/2]
+    ys_bar = _linspace(y_min, y_max, n_x)
     for yb in ys_bar:
-        ax.plot([x_min, x_max], [yb, yb], color='#FF8F00', linewidth=2.5,
+        x0, x1 = _horizontal_segment(yb)
+        if x1 <= x0:
+            continue
+        ax.plot([x0, x1], [yb, yb], color='#FF8F00', linewidth=2.5,
                 solid_capstyle='round', zorder=3)
 
     # Top Y-bars (vertical, teal dashed)
-    if n_y > 1:
-        xs_bar = [x_min + (x_max-x_min)*k/(n_y-1) for k in range(n_y)]
-    else:
-        xs_bar = [(x_min+x_max)/2]
+    xs_bar = _linspace(x_min, x_max, n_y)
     for xb in xs_bar:
-        ax.plot([xb, xb], [y_min, y_max], color='#00897B', linewidth=2.5,
+        y0, y1 = _vertical_segment(xb)
+        if y1 <= y0:
+            continue
+        ax.plot([xb, xb], [y0, y1], color='#00897B', linewidth=2.5,
                 linestyle='--', dashes=(8, 4), zorder=3)
 
     # s_max reference bar
@@ -367,9 +464,21 @@ def _plot_elev(coords, h_cap, D, col_size, results):
 def _set_cell(cell, text, bold=False):
     cell.text = ""
     p = cell.paragraphs[0]
+    p.paragraph_format.space_after = Pt(0)
     r = p.add_run(str(text))
     r.bold = bold
-    r.font.size = Pt(10)
+    r.font.name = 'Arial'
+    r._element.get_or_add_rPr().rFonts.set(qn('w:eastAsia'), 'Arial')
+    r.font.size = Pt(8.5)
+    if str(text).strip().upper() == "OK":
+        r.font.color.rgb = OK_GREEN
+        r.bold = True
+    elif str(text).strip().upper() == "FAIL":
+        r.font.color.rgb = FAIL_RED
+        r.bold = True
+    elif str(text).strip().upper() in ("DESIGN OK", "DESIGN FAILS"):
+        r.font.color.rgb = OK_GREEN if "OK" in str(text).upper() else FAIL_RED
+        r.bold = True
 
 
 def _make_table(doc, headers, rows):
@@ -377,24 +486,80 @@ def _make_table(doc, headers, rows):
     tbl.style = 'Light Grid Accent 1'
     for j, h in enumerate(headers):
         _set_cell(tbl.rows[0].cells[j], h, bold=True)
+        _shade_cell(tbl.rows[0].cells[j], 'D9EAF7')
     for i, row in enumerate(rows):
         for j, v in enumerate(row):
             _set_cell(tbl.rows[i+1].cells[j], v)
     return tbl
 
 
+def _fmt_ok(ok):
+    return "OK" if ok else "FAIL"
+
+
 def generate_report(inputs, results, x_chk, y_chk, pairs,
                     anch_x=None, anch_y=None, opt_x=None, opt_y=None,
                     top_rebar=None):
     doc = Document()
+    _apply_report_style(doc)
 
     # Title
-    h = doc.add_heading('Pile Cap Design Report', level=0)
+    h = doc.add_heading('STM Pile Cap Design Calculation', level=0)
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run('Strut-and-Tie Method per ACI 318-19')
+    r = p.add_run('Strut-and-Tie Method | ACI 318-19 | Design Calculation Note')
     r.italic = True
+    r.font.color.rgb = MUTED_GRAY
+
+    anch_ok = True
+    if anch_x is not None:
+        anch_ok = anch_ok and anch_x.get('ok', True)
+    if anch_y is not None:
+        anch_ok = anch_ok and anch_y.get('ok', True)
+    design_ok = bool(results.get('overall_OK') and x_chk.get('ok') and
+                     y_chk.get('ok') and anch_ok)
+
+    # 0. Executive Summary
+    doc.add_heading('0. Executive Summary', level=1)
+    _make_table(doc, ['Item', 'Result'], [
+        ['Design status', 'DESIGN OK' if design_ok else 'DESIGN FAILS'],
+        ['Pile arrangement', '{} piles | {}'.format(
+            results.get('n_piles', len(inputs.get('coords', []))),
+            _format_pile(inputs['D']))],
+        ['Pile cap geometry', '{} | Lx x Ly x h = {:.0f} x {:.0f} x {:.0f} mm'.format(
+            inputs.get('shape_label', 'Pile cap'),
+            inputs['cap_lx'], inputs['cap_ly'], inputs['h_cap'])],
+        ['Column', _format_col(inputs['col_size'])],
+        ['Factored load for reactions', 'Pu_total = {:.1f} kN'.format(
+            inputs.get('Pu_total_kN', results.get('Pu_total_kN', inputs['Pu'])))],
+        ['Critical concrete checks',
+         'Strut DCR {:.2f}, pile bearing DCR {:.2f}, column DCR {:.2f}'.format(
+             results.get('strut_DCR', 0.0),
+             results.get('bearing_DCR', 0.0),
+             results.get('column_DCR', 0.0))],
+        ['Bottom reinforcement X',
+         '{}-{} | As_prov {:.0f} / As_req {:.0f} mm² | {}'.format(
+             x_chk['n_bars'], x_chk['bar_size'],
+             x_chk['As_provided'], x_chk['As_required'],
+             results.get('As_x_governs', 'governing'))],
+        ['Bottom reinforcement Y',
+         '{}-{} | As_prov {:.0f} / As_req {:.0f} mm² | {}'.format(
+             y_chk['n_bars'], y_chk['bar_size'],
+             y_chk['As_provided'], y_chk['As_required'],
+             results.get('As_y_governs', 'governing'))],
+        ['Top reinforcement basis',
+         '(0.0018Ag)/2 each direction' if top_rebar else 'Not evaluated'],
+        ['Anchorage',
+         _fmt_ok(anch_ok) if (anch_x is not None or anch_y is not None)
+         else 'Not evaluated'],
+    ])
+    p = doc.add_paragraph()
+    p.add_run('Model scope: ').bold = True
+    p.add_run(
+        'STM concrete capacity checks are preliminary and should be reviewed '
+        'with final strut/nodal-zone geometry, detailing, constructability, '
+        'and project-specific code requirements.')
 
     # 1. Inputs
     doc.add_heading('1. Design Inputs', level=1)
@@ -949,18 +1114,21 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     # 8. Conclusion
     doc.add_heading('8. Conclusion', level=1)
     p = doc.add_paragraph()
-    if results['overall_OK'] and x_chk['ok'] and y_chk['ok']:
+    if design_ok:
         rr = p.add_run("DESIGN OK. ")
         rr.bold = True
-        rr.font.color.rgb = RGBColor(0x2E, 0x7D, 0x32)
-        p.add_run("All STM capacity checks and reinforcement requirements "
-                  "satisfied per ACI 318-19.")
+        rr.font.color.rgb = OK_GREEN
+        p.add_run("STM capacity checks, bottom reinforcement, top minimum "
+                  "reinforcement, and available anchorage checks are satisfied "
+                  "for the stated input assumptions.")
     else:
         rr = p.add_run("DESIGN FAILS. ")
         rr.bold = True
-        rr.font.color.rgb = RGBColor(0xC6, 0x28, 0x28)
-        p.add_run("One or more checks unsatisfied. Increase cap thickness, "
-                  "pile size, cap dimensions, or reinforcement.")
+        rr.font.color.rgb = FAIL_RED
+        p.add_run("One or more checks are unsatisfied. Review the executive "
+                  "summary and detailed tables; typical adjustments include "
+                  "increasing cap thickness, pile size, cap dimensions, pile "
+                  "count, reinforcement, or available anchorage length.")
 
     out = io.BytesIO()
     doc.save(out)
