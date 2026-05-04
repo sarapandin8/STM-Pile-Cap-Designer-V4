@@ -290,7 +290,8 @@ def plot_elevation(coords, h_cap, D, col_size, results):
     return fig
 
 def plot_rebar_layout(coords, D, lx, ly, cx, cy, col_size, cap_polygon,
-                      results, x_bar, x_n, y_bar, y_n, x_chk, y_chk):
+                      results, x_bar, x_n, y_bar, y_n, x_chk, y_chk,
+                      cover_mm=75.0):
     fig = plot_layout_preview(coords, D, lx, ly, cx, cy, col_size,
                               "Reinforcement", cap_polygon)
     if not coords:
@@ -305,29 +306,82 @@ def plot_rebar_layout(coords, D, lx, ly, cx, cy, col_size, cap_polygon,
     else:
         pwid_x = pbx
         pwid_y = pby
-    x_min, x_max = min(xs)-pwid_x, max(xs)+pwid_x
-    y_min, y_max = min(ys)-pwid_y, max(ys)+pwid_y
+    if cap_polygon:
+        poly = list(cap_polygon)
+        xs_cap = [p[0] for p in poly]
+        ys_cap = [p[1] for p in poly]
+        cap_x_min, cap_x_max = min(xs_cap), max(xs_cap)
+        cap_y_min, cap_y_max = min(ys_cap), max(ys_cap)
+    else:
+        poly = [
+            (cx - lx/2, cy - ly/2),
+            (cx + lx/2, cy - ly/2),
+            (cx + lx/2, cy + ly/2),
+            (cx - lx/2, cy + ly/2),
+        ]
+        cap_x_min, cap_x_max = cx - lx/2, cx + lx/2
+        cap_y_min, cap_y_max = cy - ly/2, cy + ly/2
+
+    edge_inset = min(max(float(cover_mm), 25.0), 0.45 * min(lx, ly))
+
+    def _linspace(a, b, n):
+        if n <= 1 or b <= a:
+            return [(a + b) / 2.0]
+        return [a + (b - a) * i / (n - 1) for i in range(n)]
+
+    def _horizontal_segment(y):
+        hits = []
+        for i, (x1, y1) in enumerate(poly):
+            x2, y2 = poly[(i + 1) % len(poly)]
+            if abs(y2 - y1) < 1e-9:
+                continue
+            if (y >= min(y1, y2)) and (y < max(y1, y2)):
+                t = (y - y1) / (y2 - y1)
+                hits.append(x1 + t * (x2 - x1))
+        hits.sort()
+        if len(hits) >= 2:
+            return hits[0] + edge_inset, hits[-1] - edge_inset
+        return cap_x_min + edge_inset, cap_x_max - edge_inset
+
+    def _vertical_segment(x):
+        hits = []
+        for i, (x1, y1) in enumerate(poly):
+            x2, y2 = poly[(i + 1) % len(poly)]
+            if abs(x2 - x1) < 1e-9:
+                continue
+            if (x >= min(x1, x2)) and (x < max(x1, x2)):
+                t = (x - x1) / (x2 - x1)
+                hits.append(y1 + t * (y2 - y1))
+        hits.sort()
+        if len(hits) >= 2:
+            return hits[0] + edge_inset, hits[-1] - edge_inset
+        return cap_y_min + edge_inset, cap_y_max - edge_inset
+
+    x_min = cap_x_min + edge_inset
+    x_max = cap_x_max - edge_inset
+    y_min = cap_y_min + edge_inset
+    y_max = cap_y_max - edge_inset
 
     # X-direction bars: horizontal lines running along X, count = x_n, spaced in Y
-    if x_n > 1:
-        ys_bar = [y_min + (y_max-y_min)*i/(x_n-1) for i in range(x_n)]
-    else:
-        ys_bar = [(y_min+y_max)/2]
+    ys_bar = _linspace(y_min, y_max, x_n)
     for yb in ys_bar:
+        x0, x1 = _horizontal_segment(yb)
+        if x1 <= x0:
+            continue
         fig.add_trace(go.Scatter(
-            x=[x_min, x_max], y=[yb, yb], mode="lines",
+            x=[x0, x1], y=[yb, yb], mode="lines",
             line={"color": REBAR_X, "width": 2},
             hoverinfo="text",
             text=["{} (X-dir)".format(x_bar)]*2, showlegend=False))
 
     # Y-direction bars: vertical lines running along Y, count = y_n, spaced in X
-    if y_n > 1:
-        xs_bar = [x_min + (x_max-x_min)*i/(y_n-1) for i in range(y_n)]
-    else:
-        xs_bar = [(x_min+x_max)/2]
+    xs_bar = _linspace(x_min, x_max, y_n)
     for xb in xs_bar:
+        y0, y1 = _vertical_segment(xb)
+        if y1 <= y0:
+            continue
         fig.add_trace(go.Scatter(
-            x=[xb, xb], y=[y_min, y_max], mode="lines",
+            x=[xb, xb], y=[y0, y1], mode="lines",
             line={"color": REBAR_Y, "width": 2, "dash": "dot"},
             hoverinfo="text",
             text=["{} (Y-dir)".format(y_bar)]*2, showlegend=False))

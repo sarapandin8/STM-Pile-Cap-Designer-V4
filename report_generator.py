@@ -195,26 +195,76 @@ def _plot_bottom_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
         ax.text(px, py, 'P{}'.format(i), ha='center', va='center',
                 color='white', fontsize=8, fontweight='bold', zorder=5)
 
-    xs_p = [c[0] for c in coords]; ys_p = [c[1] for c in coords]
-    x_min = min(xs_p) - hw_x;  x_max = max(xs_p) + hw_x
-    y_min = min(ys_p) - hw_y;  y_max = max(ys_p) + hw_y
+    if cap_polygon:
+        poly = list(cap_polygon)
+        xs_cap = [p[0] for p in poly]
+        ys_cap = [p[1] for p in poly]
+        cap_x_min, cap_x_max = min(xs_cap), max(xs_cap)
+        cap_y_min, cap_y_max = min(ys_cap), max(ys_cap)
+    else:
+        poly = [
+            (cx - lx/2, cy - ly/2),
+            (cx + lx/2, cy - ly/2),
+            (cx + lx/2, cy + ly/2),
+            (cx - lx/2, cy + ly/2),
+        ]
+        cap_x_min, cap_x_max = cx - lx/2, cx + lx/2
+        cap_y_min, cap_y_max = cy - ly/2, cy + ly/2
+
+    edge_inset = min(max(float(cover_mm), 25.0), 0.45 * min(lx, ly))
+
+    def _linspace(a, b, n):
+        if n <= 1 or b <= a:
+            return [(a + b) / 2.0]
+        return [a + (b - a) * k / (n - 1) for k in range(n)]
+
+    def _horizontal_segment(y):
+        hits = []
+        for k, (x1, y1) in enumerate(poly):
+            x2, y2 = poly[(k + 1) % len(poly)]
+            if abs(y2 - y1) < 1e-9:
+                continue
+            if (y >= min(y1, y2)) and (y < max(y1, y2)):
+                t = (y - y1) / (y2 - y1)
+                hits.append(x1 + t * (x2 - x1))
+        hits.sort()
+        if len(hits) >= 2:
+            return hits[0] + edge_inset, hits[-1] - edge_inset
+        return cap_x_min + edge_inset, cap_x_max - edge_inset
+
+    def _vertical_segment(x):
+        hits = []
+        for k, (x1, y1) in enumerate(poly):
+            x2, y2 = poly[(k + 1) % len(poly)]
+            if abs(x2 - x1) < 1e-9:
+                continue
+            if (x >= min(x1, x2)) and (x < max(x1, x2)):
+                t = (x - x1) / (x2 - x1)
+                hits.append(y1 + t * (y2 - y1))
+        hits.sort()
+        if len(hits) >= 2:
+            return hits[0] + edge_inset, hits[-1] - edge_inset
+        return cap_y_min + edge_inset, cap_y_max - edge_inset
+
+    x_min = cap_x_min + edge_inset; x_max = cap_x_max - edge_inset
+    y_min = cap_y_min + edge_inset; y_max = cap_y_max - edge_inset
 
     # Bottom X-bars (horizontal, red solid)
-    if x_n > 1:
-        ys_bar = [y_min + (y_max-y_min)*k/(x_n-1) for k in range(x_n)]
-    else:
-        ys_bar = [(y_min+y_max)/2]
+    ys_bar = _linspace(y_min, y_max, x_n)
     for yb in ys_bar:
-        ax.plot([x_min, x_max], [yb, yb], color='#E91E63', linewidth=2.0,
+        x0, x1 = _horizontal_segment(yb)
+        if x1 <= x0:
+            continue
+        ax.plot([x0, x1], [yb, yb], color='#E91E63', linewidth=2.0,
                 solid_capstyle='round', zorder=3)
 
     # Bottom Y-bars (vertical, blue dashed)
-    if y_n > 1:
-        xs_bar = [x_min + (x_max-x_min)*k/(y_n-1) for k in range(y_n)]
-    else:
-        xs_bar = [(x_min+x_max)/2]
+    xs_bar = _linspace(x_min, x_max, y_n)
     for xb in xs_bar:
-        ax.plot([xb, xb], [y_min, y_max], color='#3F51B5', linewidth=2.0,
+        y0, y1 = _vertical_segment(xb)
+        if y1 <= y0:
+            continue
+        ax.plot([xb, xb], [y0, y1], color='#3F51B5', linewidth=2.0,
                 linestyle='--', dashes=(8, 4), zorder=3)
 
     # Legend proxies
