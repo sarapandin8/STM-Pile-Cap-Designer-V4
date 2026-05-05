@@ -226,23 +226,23 @@ with st.sidebar:
                      key="col_section")
         if st.session_state.col_section == "Square":
             st.number_input("Column side b (mm)",
-                            200.0, 2000.0, step=50.0, key="col_bx")
+                            min_value=1.0, step=50.0, key="col_bx")
             st.session_state.col_by = st.session_state.col_bx
         elif st.session_state.col_section == "Rectangular":
             cc1, cc2 = st.columns(2)
-            cc1.number_input("bx (mm)", 200.0, 2000.0,
+            cc1.number_input("bx (mm)", min_value=1.0,
                              step=50.0, key="col_bx")
-            cc2.number_input("by (mm)", 200.0, 2000.0,
+            cc2.number_input("by (mm)", min_value=1.0,
                              step=50.0, key="col_by")
         else:
             st.number_input("Diameter D_c (mm)",
-                            200.0, 2000.0, step=50.0, key="col_diam")
+                            min_value=1.0, step=50.0, key="col_diam")
         pc1, pc2 = st.columns(2)
         pc1.number_input("Column X (mm)",
-                         -10000.0, 10000.0, step=50.0, key="col_x",
+                         step=50.0, key="col_x",
                          help="Column/load point coordinate measured from layout origin.")
         pc2.number_input("Column Y (mm)",
-                         -10000.0, 10000.0, step=50.0, key="col_y",
+                         step=50.0, key="col_y",
                          help="Column/load point coordinate measured from layout origin.")
 
     with st.expander("Pile & Cap", expanded=True):
@@ -251,18 +251,18 @@ with st.sidebar:
                      key="pile_section")
         if st.session_state.pile_section == "Circular":
             st.number_input("Pile diameter D (mm)",
-                            200.0, 3500.0, step=50.0, key="pile_diam")
+                            min_value=1.0, step=50.0, key="pile_diam")
         elif st.session_state.pile_section == "Square":
             st.number_input("Pile side b (mm)",
-                            200.0, 3500.0, step=50.0, key="pile_bx")
+                            min_value=1.0, step=50.0, key="pile_bx")
             st.session_state.pile_by = st.session_state.pile_bx
         else:
             pp1, pp2 = st.columns(2)
             pp1.number_input("Pile bx (mm)",
-                             200.0, 3500.0, step=50.0, key="pile_bx")
+                             min_value=1.0, step=50.0, key="pile_bx")
             pp2.number_input("Pile by (mm)",
-                             200.0, 3500.0, step=50.0, key="pile_by")
-        st.number_input("Cap thickness (mm)", 400, 3000, step=50,
+                             min_value=1.0, step=50.0, key="pile_by")
+        st.number_input("Cap thickness (mm)", min_value=1, step=50,
                         key="h_cap")
         st.number_input(
             "W_cap ULS factor (γ)",
@@ -318,9 +318,9 @@ with st.sidebar:
     is_custom = chosen.startswith("Custom")
     is_trunc = chosen.startswith("3-Pile (Truncated")
 
-    st.slider("Spacing factor (xD)", 2.5, 5.0, step=0.1,
-              key="spacing_factor",
-              disabled=(is_custom or is_trunc))
+    st.number_input("Spacing factor (xD)", min_value=0.0, step=0.1,
+                    key="spacing_factor",
+                    disabled=(is_custom or is_trunc))
 
     with st.expander("⚙️ Advanced spacing (Manual override)",
                      expanded=False):
@@ -333,13 +333,13 @@ with st.sidebar:
                  "(useful for Rectangular/Barrette piles).")
         _adv_off = (not st.session_state.adv_spacing)             or is_custom or is_trunc
         ax1, ax2 = st.columns(2)
-        ax1.slider("sf_x (× pile_X)", 1.5, 6.0, step=0.1,
-                   key="sf_x", disabled=_adv_off)
-        ax2.slider("sf_y (× pile_Y)", 1.5, 6.0, step=0.1,
-                   key="sf_y", disabled=_adv_off)
+        ax1.number_input("sf_x (× pile_X)", min_value=0.0, step=0.1,
+                         key="sf_x", disabled=_adv_off)
+        ax2.number_input("sf_y (× pile_Y)", min_value=0.0, step=0.1,
+                         key="sf_y", disabled=_adv_off)
         st.number_input(
             "Min clear edge-to-edge (mm)",
-            100.0, 2000.0, step=50.0, key="clear_min",
+            min_value=0.0, step=50.0, key="clear_min",
             disabled=(is_custom or is_trunc),
             help="Anti-collision: pile edges never closer than this. "
                  "Default 500 mm.")
@@ -350,10 +350,10 @@ with st.sidebar:
 
     st.markdown("**Edge distance per side (mm)**")
     c1, c2 = st.columns(2)
-    c1.number_input("e_left", 50.0, 1000.0, step=10.0, key="e_left")
-    c2.number_input("e_right", 50.0, 1000.0, step=10.0, key="e_right")
-    c1.number_input("e_top", 50.0, 1000.0, step=10.0, key="e_top")
-    c2.number_input("e_bot", 50.0, 1000.0, step=10.0, key="e_bot")
+    c1.number_input("e_left", min_value=0.0, step=10.0, key="e_left")
+    c2.number_input("e_right", min_value=0.0, step=10.0, key="e_right")
+    c1.number_input("e_top", min_value=0.0, step=10.0, key="e_top")
+    c2.number_input("e_bot", min_value=0.0, step=10.0, key="e_bot")
     e_left = st.session_state.e_left
     e_right = st.session_state.e_right
     e_top = st.session_state.e_top
@@ -369,10 +369,10 @@ with st.sidebar:
 
     if is_trunc:
         st.markdown("**Truncated Equilateral Triangle**")
-        st.number_input("Side L (mm)", 1000, 10000, step=50, key="L_side")
-        st.number_input("Truncation w (mm)", 100, 3000, step=25,
+        st.number_input("Side L (mm)", min_value=1, step=50, key="L_side")
+        st.number_input("Truncation w (mm)", min_value=0, step=25,
                         key="w_trunc")
-        st.number_input("Pile-to-edge e (mm)", 50.0, 1500.0, step=10.0,
+        st.number_input("Pile-to-edge e (mm)", min_value=0.0, step=10.0,
                         key="e_trunc")
         cfg = get_truncated_triangle_equal(
             D, float(st.session_state.L_side),
