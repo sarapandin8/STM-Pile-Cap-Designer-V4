@@ -103,6 +103,19 @@ def get_preset_layouts(D, sf=2.5, clear_min=500.0,
             "lx": lx, "ly": ly, "cx": cx, "cy": cy, "cap_polygon": None,
         }
 
+    def _centered_row_xs(n_cols):
+        return [(i - (n_cols - 1) / 2.0) * sx_a for i in range(n_cols)]
+
+    def add_staggered(name, outer_cols, middle_cols):
+        coords = []
+        for ix in _centered_row_xs(outer_cols):
+            coords.append((ix, sy_a))
+        for ix in _centered_row_xs(middle_cols):
+            coords.append((ix, 0.0))
+        for ix in _centered_row_xs(outer_cols):
+            coords.append((ix, -sy_a))
+        add(name, coords, "Rectangular")
+
     # 2-Pile linear (along X)
     add("2-Pile (Linear)",
         [(-sx_a/2, 0.0), (sx_a/2, 0.0)], "Rectangular")
@@ -159,6 +172,9 @@ def get_preset_layouts(D, sf=2.5, clear_min=500.0,
             eight.append((ix, iy))
     add("8-Pile (2x4)", eight, "Rectangular")
 
+    # 8-Pile staggered (3 top, 2 middle, 3 bottom)
+    add_staggered("8-Pile (3-2-3)", 3, 2)
+
     # 9-Pile (3 × 3 grid)
     nine = []
     for ix in (-sx_a, 0.0, sx_a):
@@ -173,6 +189,9 @@ def get_preset_layouts(D, sf=2.5, clear_min=500.0,
             ten.append((ix, iy))
     add("10-Pile (2x5)", ten, "Rectangular")
 
+    # 11-Pile staggered (4 top, 3 middle, 4 bottom)
+    add_staggered("11-Pile (4-3-4)", 4, 3)
+
     # 12-Pile (2 rows × 6 cols)
     twelve = []
     for ix in (-2.5*sx_a, -1.5*sx_a, -0.5*sx_a,
@@ -180,6 +199,9 @@ def get_preset_layouts(D, sf=2.5, clear_min=500.0,
         for iy in (-sy_a/2, sy_a/2):
             twelve.append((ix, iy))
     add("12-Pile (2x6)", twelve, "Rectangular")
+
+    # 14-Pile staggered (5 top, 4 middle, 5 bottom)
+    add_staggered("14-Pile (5-4-5)", 5, 4)
 
     return layouts
 
