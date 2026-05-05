@@ -769,10 +769,10 @@ if "_stm_results" in st.session_state:
         st.dataframe(pd.DataFrame(recs), use_container_width=True,
                      hide_index=True)
 
-    t1, t2, t6, t3, t4, t7, t5 = st.tabs([
+    t1, t2, t6, t3, t7, t4, t5 = st.tabs([
         "📊 Plan", "📈 Elevation", "🎲 3D View",
-        "🔩 Reinforcement", "⚓ Anchorage",
-        "🪟 Top Rebar", "📋 Detail"])
+        "🔩 Bottom Rebar", "🪟 Top Rebar",
+        "⚓ Anchorage", "📋 Detail"])
 
     with t1:
         st.plotly_chart(
