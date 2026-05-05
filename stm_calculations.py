@@ -116,6 +116,11 @@ def get_preset_layouts(D, sf=2.5, clear_min=500.0,
     add("3-Pile (Linear)",
         [(-sx_a, 0.0), (0.0, 0.0), (sx_a, 0.0)], "Rectangular")
 
+    # 4-Pile linear (single row along X)
+    add("4-Pile (Linear)",
+        [(-1.5*sx_a, 0.0), (-0.5*sx_a, 0.0),
+         ( 0.5*sx_a, 0.0), ( 1.5*sx_a, 0.0)], "Rectangular")
+
     # 4-Pile square grid (sx_a × sy_a)
     add("4-Pile (Square)",
         [(-sx_a/2, -sy_a/2), ( sx_a/2, -sy_a/2),

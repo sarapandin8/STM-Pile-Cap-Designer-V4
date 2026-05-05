@@ -311,7 +311,9 @@ with st.sidebar:
         "Custom (User-defined coords)",
     ]
     if st.session_state.preset_choice not in options:
-        st.session_state.preset_choice = options[3]
+        st.session_state.preset_choice = (
+            "4-Pile (Square)" if "4-Pile (Square)" in options else options[0]
+        )
     st.selectbox("Preset", options, key="preset_choice")
     chosen = st.session_state.preset_choice
 
