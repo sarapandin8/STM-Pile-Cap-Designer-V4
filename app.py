@@ -289,7 +289,8 @@ DEFAULTS = {
     "pile_section": "Circular",
     "pile_bx": 600.0, "pile_by": 600.0, "pile_diam": 600.0,
     "preset_choice": "4-Pile (Square)",
-    "spacing_factor": 2.5,
+    "spacing_factor": 2.5,  # Legacy save/load key.
+    "spacing_factor_x": 2.5, "spacing_factor_y": 2.5,
     "adv_spacing": False,
     "sf_x": 2.5, "sf_y": 2.5, "clear_min": 500.0,
     "e_left": 450.0, "e_right": 450.0,
@@ -304,8 +305,14 @@ DEFAULTS = {
     "top_bar_size": "DB20",
     "wcap_uls_factor": 1.2,
 }
+_had_spacing_x = "spacing_factor_x" in st.session_state
+_had_spacing_y = "spacing_factor_y" in st.session_state
 for _k, _v in DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
+if not _had_spacing_x:
+    st.session_state.spacing_factor_x = st.session_state.spacing_factor
+if not _had_spacing_y:
+    st.session_state.spacing_factor_y = st.session_state.spacing_factor
 
 st.title("🏗️ STM Pile Cap Designer")
 st.caption("Strut-and-Tie Method - ACI 318-19 / CRSI Design Handbook")
@@ -315,6 +322,11 @@ with st.sidebar:
     st.subheader("💾 Save / Load Design")
     sl1, sl2 = st.columns(2)
     state_for_save = {k: st.session_state[k] for k in DEFAULTS}
+    _save_sfx = float(st.session_state.get("spacing_factor_x", 2.5))
+    _save_sfy = float(st.session_state.get("spacing_factor_y", _save_sfx))
+    state_for_save["spacing_factor"] = max(_save_sfx, _save_sfy)
+    state_for_save["sf_x"] = _save_sfx
+    state_for_save["sf_y"] = _save_sfy
     sl1.download_button(
         "💾 Save",
         data=json.dumps(state_for_save, indent=2),
@@ -331,6 +343,11 @@ with st.sidebar:
             for k in DEFAULTS:
                 if k in data:
                     st.session_state[k] = data[k]
+            if "spacing_factor" in data:
+                if "spacing_factor_x" not in data:
+                    st.session_state.spacing_factor_x = data["spacing_factor"]
+                if "spacing_factor_y" not in data:
+                    st.session_state.spacing_factor_y = data["spacing_factor"]
             st.session_state["_last_upload_id"] = up.file_id
             st.success("Loaded — refreshing...")
             st.rerun()
@@ -440,8 +457,14 @@ with st.sidebar:
     else:
         _gov_max = max(D["bx"], D["by"])
     e_def = max(150.0, 0.75 * _gov_max)
+    _preset_sfx = float(st.session_state.get(
+        "spacing_factor_x", st.session_state.get("spacing_factor", 2.5)))
+    _preset_sfy = float(st.session_state.get(
+        "spacing_factor_y", st.session_state.get("spacing_factor", 2.5)))
     presets_init = get_preset_layouts(
-        D, sf=2.5, clear_min=st.session_state.clear_min,
+        D, sf=max(_preset_sfx, _preset_sfy),
+        clear_min=st.session_state.clear_min,
+        sf_x=_preset_sfx, sf_y=_preset_sfy,
         e_left=e_def, e_right=e_def, e_top=e_def, e_bot=e_def)
     options = list(presets_init.keys()) + [
         "3-Pile (Truncated Triangle - Equal corners)",
@@ -457,25 +480,22 @@ with st.sidebar:
     is_custom = chosen.startswith("Custom")
     is_trunc = chosen.startswith("3-Pile (Truncated")
 
-    st.number_input("Spacing factor (xD)", min_value=0.0, step=0.1,
-                    key="spacing_factor",
-                    disabled=(is_custom or is_trunc))
+    sp1, sp2 = st.columns(2)
+    sp1.number_input("X spacing factor (xD)", min_value=0.0, step=0.1,
+                     key="spacing_factor_x",
+                     disabled=(is_custom or is_trunc),
+                     help="Center-to-center spacing along the X direction.")
+    sp2.number_input("Y spacing factor (xD)", min_value=0.0, step=0.1,
+                     key="spacing_factor_y",
+                     disabled=(is_custom or is_trunc),
+                     help="Center-to-center spacing along the Y direction.")
+    st.session_state.spacing_factor = max(
+        float(st.session_state.spacing_factor_x),
+        float(st.session_state.spacing_factor_y))
+    st.session_state.sf_x = float(st.session_state.spacing_factor_x)
+    st.session_state.sf_y = float(st.session_state.spacing_factor_y)
 
-    with st.expander("⚙️ Advanced spacing (Manual override)",
-                     expanded=False):
-        st.checkbox(
-            "Enable per-axis override (sf_x / sf_y)",
-            key="adv_spacing",
-            disabled=(is_custom or is_trunc),
-            help="When OFF: same factor applied to both X and Y. "
-                 "When ON: control X and Y spacing factors independently "
-                 "(useful for Rectangular/Barrette piles).")
-        _adv_off = (not st.session_state.adv_spacing)             or is_custom or is_trunc
-        ax1, ax2 = st.columns(2)
-        ax1.number_input("sf_x (× pile_X)", min_value=0.0, step=0.1,
-                         key="sf_x", disabled=_adv_off)
-        ax2.number_input("sf_y (× pile_Y)", min_value=0.0, step=0.1,
-                         key="sf_y", disabled=_adv_off)
+    with st.expander("⚙️ Spacing limits / anti-overlap", expanded=False):
         st.number_input(
             "Min clear edge-to-edge (mm)",
             min_value=0.0, step=50.0, key="clear_min",
@@ -483,7 +503,8 @@ with st.sidebar:
             help="Anti-collision: pile edges never closer than this. "
                  "Default 500 mm.")
         st.caption(
-            "Auto-fix rule: s = max(sf × pile_dim, pile_dim + clear_min). "
+            "Auto-fix rule: sx = max(sf_x × pile_X, pile_X + clear_min), "
+            "sy = max(sf_y × pile_Y, pile_Y + clear_min). "
             "For 300×1000 piles → spacing auto-expands along the long axis "
             "to prevent overlap.")
 
@@ -497,7 +518,9 @@ with st.sidebar:
     e_right = st.session_state.e_right
     e_top = st.session_state.e_top
     e_bot = st.session_state.e_bot
-    spacing_factor = st.session_state.spacing_factor
+    spacing_factor_x = float(st.session_state.spacing_factor_x)
+    spacing_factor_y = float(st.session_state.spacing_factor_y)
+    spacing_factor_diag = max(spacing_factor_x, spacing_factor_y)
 
     coords = []
     shape_label = "Custom"
@@ -529,12 +552,10 @@ with st.sidebar:
         if cfg['d_p'] <= 0:
             st.error("Triangle too small. Increase L.")
     elif not is_custom:
-        _sfx = st.session_state.sf_x if st.session_state.adv_spacing else None
-        _sfy = st.session_state.sf_y if st.session_state.adv_spacing else None
         presets = get_preset_layouts(
-            D, sf=spacing_factor,
+            D, sf=spacing_factor_diag,
             clear_min=st.session_state.clear_min,
-            sf_x=_sfx, sf_y=_sfy,
+            sf_x=spacing_factor_x, sf_y=spacing_factor_y,
             e_left=e_left, e_right=e_right,
             e_top=e_top, e_bot=e_bot)
         cfg = presets[chosen]
@@ -1379,6 +1400,9 @@ As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
         "cap_cx": cap_cx, "cap_cy": cap_cy,
         "cap_polygon": cap_polygon,
         "shape_label": shape_label,
+        "spacing_factor_x": spacing_factor_x,
+        "spacing_factor_y": spacing_factor_y,
+        "clear_min": st.session_state.clear_min,
     }
     try:
         docx_buf = generate_report(

@@ -656,6 +656,12 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         ['Pile arrangement', '{} piles | {}'.format(
             results.get('n_piles', len(inputs.get('coords', []))),
             _format_pile(inputs['D']))],
+        ['Preset spacing', 'X = {:.2f}D | Y = {:.2f}D | min clear = {:.0f} mm'.format(
+            float(inputs.get('spacing_factor_x',
+                             inputs.get('spacing_factor', 2.5))),
+            float(inputs.get('spacing_factor_y',
+                             inputs.get('spacing_factor', 2.5))),
+            float(inputs.get('clear_min', 500.0)))],
         ['Pile cap geometry', '{} | Lx x Ly x h = {:.0f} x {:.0f} x {:.0f} mm'.format(
             inputs.get('shape_label', 'Pile cap'),
             inputs['cap_lx'], inputs['cap_ly'], inputs['h_cap'])],
