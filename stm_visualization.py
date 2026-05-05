@@ -1,6 +1,9 @@
 import plotly.graph_objects as go
 
 PILE = "#5B8DEF"; COL = "#FF8A65"
+COL_PLAN_FILL = "rgba(255,138,101,0.16)"
+COL_LINE = "#D84315"
+COL_TEXT = "#BF360C"
 STRUT = "rgba(231,76,60,0.75)"; TIE = "rgba(46,204,113,0.9)"
 CAP_FILL = "rgba(189,195,199,0.25)"; CAP_BORDER = "#34495E"
 REBAR_X = "#E91E63"; REBAR_Y = "#3F51B5"
@@ -68,17 +71,17 @@ def plot_layout_preview(coords, D, lx, ly, cx=0.0, cy=0.0,
         fig.add_shape(type="circle",
             x0=col_x-cdm/2, y0=col_y-cdm/2,
             x1=col_x+cdm/2, y1=col_y+cdm/2,
-            fillcolor=COL, line={"color": "#D84315", "width": 2},
+            fillcolor=COL_PLAN_FILL, line={"color": COL_LINE, "width": 2},
             layer="above")
     else:
         fig.add_shape(type="rect",
             x0=col_x-cbx/2, y0=col_y-cby/2,
             x1=col_x+cbx/2, y1=col_y+cby/2,
-            fillcolor=COL, line={"color": "#D84315", "width": 2},
+            fillcolor=COL_PLAN_FILL, line={"color": COL_LINE, "width": 2},
             layer="above")
         
     fig.add_annotation(x=col_x, y=col_y, text="<b>COL</b>", showarrow=False,
-                       font={"color": "white", "size": 11})
+                       font={"color": COL_TEXT, "size": 11})
 
     sec_p, pbx, pby, pdm = _normalize_pile(D)
     for i, (x, y) in enumerate(coords, 1):

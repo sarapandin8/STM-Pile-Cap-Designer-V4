@@ -14,6 +14,9 @@ BRAND_BLUE = RGBColor(0x1F, 0x4E, 0x79)
 OK_GREEN = RGBColor(0x2E, 0x7D, 0x32)
 FAIL_RED = RGBColor(0xC6, 0x28, 0x28)
 MUTED_GRAY = RGBColor(0x66, 0x66, 0x66)
+COL_FACE_RGBA = (1.0, 0.54, 0.40, 0.16)
+COL_EDGE = '#D84315'
+COL_TEXT = '#BF360C'
 
 
 def _shade_cell(cell, fill):
@@ -112,13 +115,13 @@ def _plot_plan(coords, D, lx, ly, cx, cy, col_size, cap_polygon, results):
     if sec_c == "Circular":
         ax.add_patch(patches.Circle(
             (col_x, col_y), cdm/2,
-            facecolor='#FF8A65', edgecolor='#D84315', linewidth=2))
+            facecolor=COL_FACE_RGBA, edgecolor=COL_EDGE, linewidth=2))
     else:
         ax.add_patch(patches.Rectangle(
             (col_x-cbx/2, col_y-cby/2), cbx, cby,
-            facecolor='#FF8A65', edgecolor='#D84315', linewidth=2))
+            facecolor=COL_FACE_RGBA, edgecolor=COL_EDGE, linewidth=2))
     ax.text(col_x, col_y, 'COL', ha='center', va='center',
-            color='white', fontsize=9, fontweight='bold')
+            color=COL_TEXT, fontsize=9, fontweight='bold')
     pile_loads = results.get("pile_loads_kN", [])
     sec_p, pbx, pby, pdm = _norm_pile(D)
     for i, (x, y) in enumerate(coords, 1):
@@ -175,11 +178,11 @@ def _plot_bottom_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
     col_x, col_y = _col_pos(col_size)
     if sec_c == "Circular":
         ax.add_patch(patches.Circle((col_x, col_y), cdm/2,
-            facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
+            facecolor=COL_FACE_RGBA, edgecolor=COL_EDGE, linewidth=2, zorder=2))
     else:
         ax.add_patch(patches.Rectangle(
             (col_x-cbx/2, col_y-cby/2), cbx, cby,
-            facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
+            facecolor=COL_FACE_RGBA, edgecolor=COL_EDGE, linewidth=2, zorder=2))
     # Piles
     sec_p, pbx, pby, pdm = _norm_pile(D)
     hw_x = (pdm if sec_p == "Circular" else pbx) / 2.0
@@ -332,11 +335,11 @@ def _plot_top_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
     col_x, col_y = _col_pos(col_size)
     if sec_c == "Circular":
         ax.add_patch(patches.Circle((col_x, col_y), cdm/2,
-            facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
+            facecolor=COL_FACE_RGBA, edgecolor=COL_EDGE, linewidth=2, zorder=2))
     else:
         ax.add_patch(patches.Rectangle(
             (col_x-cbx/2, col_y-cby/2), cbx, cby,
-            facecolor='#FF8A65', edgecolor='#D84315', linewidth=2, zorder=4))
+            facecolor=COL_FACE_RGBA, edgecolor=COL_EDGE, linewidth=2, zorder=2))
     # Piles (outline only — top view)
     sec_p, pbx, pby, pdm = _norm_pile(D)
     hw_x = (pdm if sec_p == "Circular" else pbx) / 2.0
