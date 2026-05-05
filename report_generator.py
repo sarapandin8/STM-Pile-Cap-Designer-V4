@@ -99,6 +99,23 @@ def _format_pile(p):
         return "Square, {:.0f} mm side".format(bx)
     return "Rectangular, {:.0f} x {:.0f} mm".format(bx, by)
 
+
+def _rebar_spacing(n_bars, distribution_width_mm, cap_lx_mm, cap_ly_mm,
+                   cover_mm):
+    n = int(n_bars)
+    if n <= 1:
+        return None
+    edge_inset = min(max(float(cover_mm), 25.0),
+                     0.45 * min(float(cap_lx_mm), float(cap_ly_mm)))
+    usable_width = max(0.0, float(distribution_width_mm) - 2.0 * edge_inset)
+    return usable_width / (n - 1)
+
+
+def _format_spacing(value):
+    if value is None:
+        return "-"
+    return "{:.0f}".format(value)
+
 def _plot_plan(coords, D, lx, ly, cx, cy, col_size, cap_polygon, results):
     fig, ax = plt.subplots(figsize=(7, 7))
     if cap_polygon:
@@ -950,16 +967,23 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
           results.get('As_y_governs', '—')]])
 
     doc.add_heading('5.4 Selected Reinforcement', level=2)
+    _sx_spacing = _rebar_spacing(
+        x_chk['n_bars'], inputs['cap_ly'], inputs['cap_lx'],
+        inputs['cap_ly'], inputs['cover'])
+    _sy_spacing = _rebar_spacing(
+        y_chk['n_bars'], inputs['cap_lx'], inputs['cap_lx'],
+        inputs['cap_ly'], inputs['cover'])
     _make_table(doc,
         ['Direction', 'ΣF_tie (kN)', 'As req (mm²)', 'Governing',
-         'fy used (MPa)', 'Selected', 'As prov (mm²)', 'Min OK',
-         'STM OK', 'Ratio', 'Status'],
+         'fy used (MPa)', 'Selected', 'Spacing s (mm)',
+         'As prov (mm²)', 'Min OK', 'STM OK', 'Ratio', 'Status'],
         [["X",
           "{:.1f}".format(results['F_tie_x_max_kN'] if not is_3p else results['F_tie_res_kN']),
           "{:.0f}".format(results['As_x_required_mm2']),
           results.get('As_x_governs', '—'),
           "{:.0f}".format(fyx),
           "{}-{}".format(x_chk['n_bars'], x_chk['bar_size']),
+          _format_spacing(_sx_spacing),
           "{:.0f}".format(x_chk['As_provided']),
           "OK" if x_chk['As_provided'] >= As_x_min else "FAIL",
           "OK" if x_chk.get('force_ok', True) else "FAIL",
@@ -971,6 +995,7 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
           results.get('As_y_governs', '—'),
           "{:.0f}".format(fyy),
           "{}-{}".format(y_chk['n_bars'], y_chk['bar_size']),
+          _format_spacing(_sy_spacing),
           "{:.0f}".format(y_chk['As_provided']),
           "OK" if y_chk['As_provided'] >= As_y_min else "FAIL",
           "OK" if y_chk.get('force_ok', True) else "FAIL",

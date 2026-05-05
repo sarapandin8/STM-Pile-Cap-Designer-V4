@@ -44,6 +44,18 @@ def _formula_box(text):
         unsafe_allow_html=True)
 
 
+def _rebar_spacing_text(n_bars, distribution_width_mm, cap_lx_mm, cap_ly_mm,
+                        cover_mm):
+    """Estimate center-to-center spacing used for plan rebar layout."""
+    n = int(n_bars)
+    if n <= 1:
+        return "—"
+    edge_inset = min(max(float(cover_mm), 25.0),
+                     0.45 * min(float(cap_lx_mm), float(cap_ly_mm)))
+    usable_width = max(0.0, float(distribution_width_mm) - 2.0 * edge_inset)
+    return "{:.0f}".format(usable_width / (n - 1))
+
+
 def _design_recommendations(results, x_chk=None, y_chk=None,
                             anch_x=None, anch_y=None,
                             opt_x=None, opt_y=None, cover=75.0):
@@ -753,6 +765,10 @@ if "_stm_results" in st.session_state:
             tie_x_display = results["F_tie_x_max_kN"]
             tie_y_display = results["F_tie_y_max_kN"]
             note = ""
+        x_spacing = _rebar_spacing_text(
+            x_n, cap_ly, cap_lx, cap_ly, cover)
+        y_spacing = _rebar_spacing_text(
+            y_n, cap_lx, cap_lx, cap_ly, cover)
         req_df = pd.DataFrame([
             {"Direction": "X"+note,
              "Tie (kN)":
@@ -768,6 +784,8 @@ if "_stm_results" in st.session_state:
              "fy used (MPa)":
                  "{:.0f}".format(results.get("fy_x_design_mpa", fy)),
              "Selected": "{}-{}".format(int(x_n), x_bar),
+             "Spacing s (mm)":
+                 x_spacing,
              "As prov (mm²)":
                  "{:.0f}".format(x_chk["As_provided"]),
              "Min OK":
@@ -790,6 +808,8 @@ if "_stm_results" in st.session_state:
              "fy used (MPa)":
                  "{:.0f}".format(results.get("fy_y_design_mpa", fy)),
              "Selected": "{}-{}".format(int(y_n), y_bar),
+             "Spacing s (mm)":
+                 y_spacing,
              "As prov (mm²)":
                  "{:.0f}".format(y_chk["As_provided"]),
              "Min OK":
