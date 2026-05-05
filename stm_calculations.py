@@ -166,6 +166,21 @@ def get_preset_layouts(D, sf=2.5, clear_min=500.0,
             nine.append((ix, iy))
     add("9-Pile (3x3)", nine, "Square")
 
+    # 10-Pile (2 rows × 5 cols)
+    ten = []
+    for ix in (-2.0*sx_a, -sx_a, 0.0, sx_a, 2.0*sx_a):
+        for iy in (-sy_a/2, sy_a/2):
+            ten.append((ix, iy))
+    add("10-Pile (2x5)", ten, "Rectangular")
+
+    # 12-Pile (2 rows × 6 cols)
+    twelve = []
+    for ix in (-2.5*sx_a, -1.5*sx_a, -0.5*sx_a,
+               0.5*sx_a, 1.5*sx_a, 2.5*sx_a):
+        for iy in (-sy_a/2, sy_a/2):
+            twelve.append((ix, iy))
+    add("12-Pile (2x6)", twelve, "Rectangular")
+
     return layouts
 
 def get_truncated_triangle_equal(D, L=4000.0, w=600.0, e=None):
