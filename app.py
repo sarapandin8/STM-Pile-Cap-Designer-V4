@@ -117,6 +117,36 @@ def _ensure_top_rebar_schedule(tr, cap_lx_mm, cap_ly_mm, cover_mm):
     return tr
 
 
+def _check_anchorage_with_mode(bar_size, fc, fy_mpa,
+                               available_straight_mm,
+                               available_edge_hook_mm,
+                               mode, available_vertical_hook_mm):
+    """Call check_anchorage without new kwargs for deployment compatibility."""
+    use_vertical = str(mode).startswith("90")
+    hook_avail = (
+        available_vertical_hook_mm if use_vertical
+        else available_edge_hook_mm
+    )
+    out = check_anchorage(
+        bar_size, fc, fy_mpa, available_straight_mm, hook_avail)
+    out["anchorage_mode"] = mode
+    out["available_edge_hook_mm"] = available_edge_hook_mm
+    out["available_vertical_hook_mm"] = (
+        available_vertical_hook_mm if use_vertical else None
+    )
+    out["available_hook_mm"] = hook_avail
+    if use_vertical:
+        if out.get("straight_ok"):
+            out["recommended"] = "Straight bar OK"
+        elif out.get("hook_ok"):
+            out["recommended"] = "90° vertical hook OK"
+        else:
+            out["recommended"] = (
+                "INSUFFICIENT — increase cap thickness or lower bottom bar"
+            )
+    return out
+
+
 def _design_recommendations(results, x_chk=None, y_chk=None,
                             anch_x=None, anch_y=None,
                             opt_x=None, opt_y=None, cover=75.0):
@@ -778,18 +808,14 @@ if "_stm_results" in st.session_state:
     bottom_bar_z = float(st.session_state.get("anchorage_bottom_z", 150.0))
     avail_vertical_hook = max(0.0, h_cap - bottom_bar_z - cover)
     use_vertical_hook = (anchorage_mode == "90° Vertical Hook")
-    anch_x = check_anchorage(x_bar, fc, results.get("fy_x_design_mpa", fy),
-                             avail_str_x, avail_hook_x,
-                             mode=anchorage_mode,
-                             available_vertical_hook_mm=(
-                                 avail_vertical_hook if use_vertical_hook
-                                 else None))
-    anch_y = check_anchorage(y_bar, fc, results.get("fy_y_design_mpa", fy),
-                             avail_str_y, avail_hook_y,
-                             mode=anchorage_mode,
-                             available_vertical_hook_mm=(
-                                 avail_vertical_hook if use_vertical_hook
-                                 else None))
+    anch_x = _check_anchorage_with_mode(
+        x_bar, fc, results.get("fy_x_design_mpa", fy),
+        avail_str_x, avail_hook_x,
+        anchorage_mode, avail_vertical_hook)
+    anch_y = _check_anchorage_with_mode(
+        y_bar, fc, results.get("fy_y_design_mpa", fy),
+        avail_str_y, avail_hook_y,
+        anchorage_mode, avail_vertical_hook)
 
     # Top-face reinforcement — always recomputed fresh (dropdown-safe)
     top_rebar = compute_top_reinforcement(
