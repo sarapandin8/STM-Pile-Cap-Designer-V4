@@ -1,4 +1,5 @@
 import json
+import math
 import streamlit as st
 import pandas as pd
 
@@ -54,6 +55,66 @@ def _rebar_spacing_text(n_bars, distribution_width_mm, cap_lx_mm, cap_ly_mm,
                      0.45 * min(float(cap_lx_mm), float(cap_ly_mm)))
     usable_width = max(0.0, float(distribution_width_mm) - 2.0 * edge_inset)
     return "{:.0f}".format(usable_width / (n - 1))
+
+
+def _ensure_top_rebar_schedule(tr, cap_lx_mm, cap_ly_mm, cover_mm):
+    """Backfill top-bar detailing schedule if result dict lacks it.
+
+    This keeps the UI/report robust when a rerun has old session data or a
+    deployment briefly serves mixed app/calculation modules.
+    """
+    bar = tr.get("top_bar_size", "DB20")
+    A_bar = REBAR_DB.get(bar, REBAR_DB["DB20"])
+    db = tr.get("db_top_mm", REBAR_DIAM_MM.get(bar, 20.0))
+    s_max = float(tr.get("s_max_top_mm", min(3.0 * float(cap_ly_mm), 450.0)))
+    edge_inset = tr.get("top_edge_inset_mm")
+    if edge_inset is None:
+        edge_inset = min(max(float(cover_mm), float(db)),
+                         0.45 * min(float(cap_lx_mm), float(cap_ly_mm)))
+    usable_x = max(0.0, float(cap_lx_mm) - 2.0 * edge_inset)
+    usable_y = max(0.0, float(cap_ly_mm) - 2.0 * edge_inset)
+
+    def _schedule(As_req, distribution_width):
+        n_area = max(2, int(math.ceil(As_req / A_bar))) if As_req > 0 else 2
+        n_spacing = (
+            max(2, int(math.ceil(distribution_width / s_max)) + 1)
+            if s_max > 0 else n_area)
+        n = max(n_area, n_spacing)
+        spacing = distribution_width / (n - 1) if n > 1 else 0.0
+        return n, spacing, n * A_bar, n_area, n_spacing
+
+    x_n, x_spacing, x_As, x_n_area, x_n_spacing = _schedule(
+        float(tr.get("As_top_x_mm2", 0.0)), usable_y)
+    y_n, y_spacing, y_As, y_n_area, y_n_spacing = _schedule(
+        float(tr.get("As_top_y_mm2", 0.0)), usable_x)
+    x_valid = (
+        int(tr.get("top_x_n_bars") or 0) >= 2 and
+        float(tr.get("top_x_spacing_mm") or 0.0) > 0.0 and
+        float(tr.get("top_x_As_provided_mm2") or 0.0) > 0.0
+    )
+    y_valid = (
+        int(tr.get("top_y_n_bars") or 0) >= 2 and
+        float(tr.get("top_y_spacing_mm") or 0.0) > 0.0 and
+        float(tr.get("top_y_As_provided_mm2") or 0.0) > 0.0
+    )
+
+    tr.update({
+        "top_bar_area_mm2": A_bar,
+        "top_edge_inset_mm": edge_inset,
+        "top_usable_x_mm": usable_x,
+        "top_usable_y_mm": usable_y,
+        "top_x_n_bars": int(tr.get("top_x_n_bars") if x_valid else x_n),
+        "top_y_n_bars": int(tr.get("top_y_n_bars") if y_valid else y_n),
+        "top_x_spacing_mm": float(tr.get("top_x_spacing_mm") if x_valid else x_spacing),
+        "top_y_spacing_mm": float(tr.get("top_y_spacing_mm") if y_valid else y_spacing),
+        "top_x_As_provided_mm2": float(tr.get("top_x_As_provided_mm2") if x_valid else x_As),
+        "top_y_As_provided_mm2": float(tr.get("top_y_As_provided_mm2") if y_valid else y_As),
+        "top_x_n_area": int(tr.get("top_x_n_area") if x_valid else x_n_area),
+        "top_y_n_area": int(tr.get("top_y_n_area") if y_valid else y_n_area),
+        "top_x_n_spacing": int(tr.get("top_x_n_spacing") if x_valid else x_n_spacing),
+        "top_y_n_spacing": int(tr.get("top_y_n_spacing") if y_valid else y_n_spacing),
+    })
+    return tr
 
 
 def _design_recommendations(results, x_chk=None, y_chk=None,
@@ -695,6 +756,8 @@ if "_stm_results" in st.session_state:
         h_cap_mm=h_cap, fy_mpa=fy, fc_mpa=fc,
         cover_mm=cover,
         top_bar_size=st.session_state.get("top_bar_size", "DB20"))
+    top_rebar = _ensure_top_rebar_schedule(
+        top_rebar, cap_lx, cap_ly, cover)
 
     recs = _design_recommendations(
         results, x_chk=x_chk, y_chk=y_chk,
@@ -968,6 +1031,8 @@ if "_stm_results" in st.session_state:
             lx_mm=cap_lx, ly_mm=cap_ly,
             h_cap_mm=h_cap, fy_mpa=fy, fc_mpa=fc,
             cover_mm=cover, top_bar_size=_chosen_bar)
+        tr = _ensure_top_rebar_schedule(tr, cap_lx, cap_ly, cover)
+        top_rebar = tr
 
         # ── Code Reference Expander ──────────────────────────
         with st.expander("📖 Code Basis (ACI 318-19) — คลิกเพื่อดูรายละเอียด"):

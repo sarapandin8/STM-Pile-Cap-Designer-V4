@@ -746,6 +746,16 @@ def plot_top_rebar_layout(coords, D, lx, ly, cx, cy, col_size,
     x_max = cap_x_max - edge_inset
     y_min = cap_y_min + edge_inset
     y_max = cap_y_max - edge_inset
+    if not (
+            float(top_rebar.get("top_x_spacing_mm") or 0.0) > 0.0 and
+            float(top_rebar.get("top_x_As_provided_mm2") or 0.0) > 0.0):
+        n_x_spacing = max(2, int(_m.ceil((y_max - y_min) / s_max)) + 1) if s_max > 0 else n_x_area
+        n_x = max(n_x_area, n_x_spacing)
+    if not (
+            float(top_rebar.get("top_y_spacing_mm") or 0.0) > 0.0 and
+            float(top_rebar.get("top_y_As_provided_mm2") or 0.0) > 0.0):
+        n_y_spacing = max(2, int(_m.ceil((x_max - x_min) / s_max)) + 1) if s_max > 0 else n_y_area
+        n_y = max(n_y_area, n_y_spacing)
 
     # ── Top X-bars (horizontal solid amber) ─────────────────────
     ys_bar = _linspace(y_min, y_max, n_x)

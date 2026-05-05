@@ -116,6 +116,53 @@ def _format_spacing(value):
         return "-"
     return "{:.0f}".format(value)
 
+
+def _ensure_top_schedule_for_report(tr, inputs):
+    if not tr:
+        return tr
+    _DB = {"DB12": 113.10, "DB16": 201.06, "DB20": 314.16,
+           "DB25": 490.87, "DB28": 615.75, "DB32": 804.25}
+    bar = tr.get('top_bar_size', 'DB20')
+    A_bar = _DB.get(bar, _DB['DB20'])
+    cover = float(inputs.get('cover', 75.0))
+    lx = float(inputs.get('cap_lx', 0.0))
+    ly = float(inputs.get('cap_ly', 0.0))
+    db = float(tr.get('db_top_mm', 20.0))
+    s_max = float(tr.get('s_max_top_mm', min(3.0 * inputs.get('h_cap', 0.0), 450.0)))
+    edge_inset = tr.get('top_edge_inset_mm')
+    if edge_inset is None:
+        edge_inset = min(max(cover, db), 0.45 * min(lx, ly))
+    usable_x = max(0.0, lx - 2.0 * edge_inset)
+    usable_y = max(0.0, ly - 2.0 * edge_inset)
+
+    def _schedule(As_req, width):
+        import math as _m
+        n_area = max(2, int(_m.ceil(As_req / A_bar))) if As_req > 0 else 2
+        n_spacing = max(2, int(_m.ceil(width / s_max)) + 1) if s_max > 0 else n_area
+        n = max(n_area, n_spacing)
+        spacing = width / (n - 1) if n > 1 else 0.0
+        return n, spacing, n * A_bar
+
+    x_valid = (
+        int(tr.get('top_x_n_bars') or 0) >= 2 and
+        float(tr.get('top_x_spacing_mm') or 0.0) > 0.0 and
+        float(tr.get('top_x_As_provided_mm2') or 0.0) > 0.0)
+    y_valid = (
+        int(tr.get('top_y_n_bars') or 0) >= 2 and
+        float(tr.get('top_y_spacing_mm') or 0.0) > 0.0 and
+        float(tr.get('top_y_As_provided_mm2') or 0.0) > 0.0)
+    x_n, x_s, x_As = _schedule(float(tr.get('As_top_x_mm2', 0.0)), usable_y)
+    y_n, y_s, y_As = _schedule(float(tr.get('As_top_y_mm2', 0.0)), usable_x)
+    tr.update({
+        'top_x_n_bars': int(tr.get('top_x_n_bars') if x_valid else x_n),
+        'top_y_n_bars': int(tr.get('top_y_n_bars') if y_valid else y_n),
+        'top_x_spacing_mm': float(tr.get('top_x_spacing_mm') if x_valid else x_s),
+        'top_y_spacing_mm': float(tr.get('top_y_spacing_mm') if y_valid else y_s),
+        'top_x_As_provided_mm2': float(tr.get('top_x_As_provided_mm2') if x_valid else x_As),
+        'top_y_As_provided_mm2': float(tr.get('top_y_As_provided_mm2') if y_valid else y_As),
+    })
+    return tr
+
 def _plot_plan(coords, D, lx, ly, cx, cy, col_size, cap_polygon, results):
     fig, ax = plt.subplots(figsize=(7, 7))
     if cap_polygon:
@@ -429,6 +476,16 @@ def _plot_top_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
 
     x_min = cap_x_min + edge_inset; x_max = cap_x_max - edge_inset
     y_min = cap_y_min + edge_inset; y_max = cap_y_max - edge_inset
+    if not (
+            float(top_rebar.get("top_x_spacing_mm") or 0.0) > 0.0 and
+            float(top_rebar.get("top_x_As_provided_mm2") or 0.0) > 0.0):
+        n_x_spacing = max(2, int(_m.ceil((y_max - y_min) / s_max)) + 1) if s_max > 0 else n_x_area
+        n_x = max(n_x_area, n_x_spacing)
+    if not (
+            float(top_rebar.get("top_y_spacing_mm") or 0.0) > 0.0 and
+            float(top_rebar.get("top_y_As_provided_mm2") or 0.0) > 0.0):
+        n_y_spacing = max(2, int(_m.ceil((x_max - x_min) / s_max)) + 1) if s_max > 0 else n_y_area
+        n_y = max(n_y_area, n_y_spacing)
 
     # Top X-bars (horizontal, amber)
     ys_bar = _linspace(y_min, y_max, n_x)
@@ -1081,7 +1138,7 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     # 6. Top-Face Minimum Reinforcement
     doc.add_heading('6. Top-Face Minimum Reinforcement (ACI 318-19)', level=1)
     if top_rebar:
-        tr = top_rebar
+        tr = _ensure_top_schedule_for_report(top_rebar, inputs)
         p = doc.add_paragraph()
         p.add_run(
             "The top face of the pile cap is not part of the STM load path "
