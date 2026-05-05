@@ -782,19 +782,22 @@ BAR_WEIGHT_PER_M = {
 
 
 def optimize_rebar(As_req, bar_length_mm, sizes=None,
-                   force_req_kN=None, phi=PHI_STM):
+                   force_req_kN=None, phi=PHI_STM,
+                   min_As_req=None):
     """Pick min-weight (bar_size, n) combo satisfying As/force demand.
        Returns (best_dict, all_options_list)."""
     if sizes is None:
         sizes = list(REBAR_DB.keys())
     options = []
     best = None
+    min_area_req = As_req if min_As_req is None else min_As_req
     for sz in sizes:
         A = REBAR_DB[sz]
         fy_design = _design_fy(REBAR_FY.get(sz, 420.0))
-        As_req_for_size = As_req
+        As_force_req = 0.0
         if force_req_kN is not None and fy_design > 0:
-            As_req_for_size = force_req_kN * 1000.0 / (phi * fy_design)
+            As_force_req = force_req_kN * 1000.0 / (phi * fy_design)
+        As_req_for_size = max(float(min_area_req), float(As_force_req))
         if As_req_for_size <= 0:
             n = 2
         else:
@@ -802,16 +805,24 @@ def optimize_rebar(As_req, bar_length_mm, sizes=None,
         wt_per = BAR_WEIGHT_PER_M[sz]
         total_wt = n * (bar_length_mm / 1000.0) * wt_per
         force_capacity = phi * n * A * fy_design / 1000.0
+        force_ok = True if force_req_kN is None else force_capacity >= force_req_kN
+        area_ok = (n * A) >= min_area_req
+        governs = "force" if As_force_req > min_area_req else "0.0018Ag minimum"
         opt = {
             "bar_size": sz, "n_bars": n,
             "As_per_bar": A, "As_provided": n * A,
             "As_required": As_req_for_size,
+            "As_min_required": min_area_req,
+            "As_force_required": As_force_req,
+            "governs": governs,
             "fy_design_mpa": fy_design,
             "force_required_kN": force_req_kN,
             "force_capacity_kN": force_capacity,
             "bar_length_mm": bar_length_mm,
             "weight_kg": total_wt,
-            "ok": (n * A) >= As_req_for_size,
+            "area_ok": area_ok,
+            "force_ok": force_ok,
+            "ok": (n * A) >= As_req_for_size and force_ok,
         }
         options.append(opt)
         if opt["ok"] and (best is None or total_wt < best["weight_kg"]):

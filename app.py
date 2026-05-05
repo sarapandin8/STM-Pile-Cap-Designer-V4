@@ -659,10 +659,12 @@ if "_stm_results" in st.session_state:
     # Auto-optimize
     opt_x, opts_x = optimize_rebar(
         results["As_x_required_mm2"], cap_lx,
-        force_req_kN=results.get("F_tie_x_design_kN"))
+        force_req_kN=results.get("F_tie_x_design_kN"),
+        min_As_req=results.get("As_x_min_required_mm2"))
     opt_y, opts_y = optimize_rebar(
         results["As_y_required_mm2"], cap_ly,
-        force_req_kN=results.get("F_tie_y_design_kN"))
+        force_req_kN=results.get("F_tie_y_design_kN"),
+        min_As_req=results.get("As_y_min_required_mm2"))
 
     # Anchorage check
     # use D/4 (inner face of CCT node) not D/2
@@ -826,7 +828,9 @@ if "_stm_results" in st.session_state:
             cox.markdown("**X-direction**")
             cox.dataframe(pd.DataFrame([{
                 "Bar": o["bar_size"], "n": o["n_bars"],
+                "As req (mm²)": "{:.0f}".format(o["As_required"]),
                 "As (mm²)": "{:.0f}".format(o["As_provided"]),
+                "Governs": o.get("governs", "—"),
                 "Wt (kg)": "{:.2f}".format(o["weight_kg"]),
                 "OK": "✅" if o["ok"] else "❌",
             } for o in opts_x]), hide_index=True,
@@ -834,7 +838,9 @@ if "_stm_results" in st.session_state:
             coy.markdown("**Y-direction**")
             coy.dataframe(pd.DataFrame([{
                 "Bar": o["bar_size"], "n": o["n_bars"],
+                "As req (mm²)": "{:.0f}".format(o["As_required"]),
                 "As (mm²)": "{:.0f}".format(o["As_provided"]),
+                "Governs": o.get("governs", "—"),
                 "Wt (kg)": "{:.2f}".format(o["weight_kg"]),
                 "OK": "✅" if o["ok"] else "❌",
             } for o in opts_y]), hide_index=True,
