@@ -1,7 +1,13 @@
 import json
+import importlib
 import math
 import streamlit as st
 import pandas as pd
+
+# Streamlit reruns app.py in the same Python process. Reload the local
+# calculation module so newly-added presets are visible without a server restart.
+import stm_calculations as _stm_calculations
+_stm_calculations = importlib.reload(_stm_calculations)
 
 from stm_calculations import (
     get_preset_layouts, get_truncated_triangle_equal,
