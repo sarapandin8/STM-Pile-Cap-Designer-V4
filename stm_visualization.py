@@ -679,9 +679,11 @@ def plot_top_rebar_layout(coords, D, lx, ly, cx, cy, col_size,
     As_y  = top_rebar.get("As_top_y_mm2", 0.0)
     s_max = top_rebar.get("s_max_top_mm", 450.0)
 
-    # Min bars from As requirement
-    n_x = max(2, int(_m.ceil(As_x / A_bar))) if As_x > 0 else 2
-    n_y = max(2, int(_m.ceil(As_y / A_bar))) if As_y > 0 else 2
+    # Bar counts include both area demand and maximum spacing demand.
+    n_x_area = max(2, int(_m.ceil(As_x / A_bar))) if As_x > 0 else 2
+    n_y_area = max(2, int(_m.ceil(As_y / A_bar))) if As_y > 0 else 2
+    n_x = int(top_rebar.get("top_x_n_bars", n_x_area))
+    n_y = int(top_rebar.get("top_y_n_bars", n_y_area))
 
     # Base cap outline
     fig = plot_layout_preview(coords, D, lx, ly, cx, cy, col_size,

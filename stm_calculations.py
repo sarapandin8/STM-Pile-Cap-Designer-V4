@@ -684,6 +684,29 @@ def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
     s_crack   = min(s_crack_1, s_crack_2)
     s_max_top = min(s_ts_max, s_crack) if fy_d > 420.0 else s_ts_max
 
+    A_top_bar = REBAR_DB.get(top_bar_size, REBAR_DB["DB20"])
+    edge_inset = min(max(float(cover_mm), float(db_top)),
+                     0.45 * min(float(lx_mm), float(ly_mm)))
+    usable_x = max(0.0, float(lx_mm) - 2.0 * edge_inset)
+    usable_y = max(0.0, float(ly_mm) - 2.0 * edge_inset)
+
+    def _top_bar_count(As_req, distribution_width):
+        n_area = max(2, int(math.ceil(As_req / A_top_bar))) if As_req > 0 else 2
+        if s_max_top > 0:
+            n_spacing = max(2, int(math.ceil(distribution_width / s_max_top)) + 1)
+        else:
+            n_spacing = n_area
+        n = max(n_area, n_spacing)
+        spacing = distribution_width / (n - 1) if n > 1 else 0.0
+        return n, spacing, n * A_top_bar, n_area, n_spacing
+
+    # X-bars run horizontally and are distributed across Ly.
+    top_x_n, top_x_spacing, top_x_As, top_x_n_area, top_x_n_spacing = (
+        _top_bar_count(As_top_x, usable_y))
+    # Y-bars run vertically and are distributed across Lx.
+    top_y_n, top_y_spacing, top_y_As, top_y_n_area, top_y_n_spacing = (
+        _top_bar_count(As_top_y, usable_x))
+
     # flag if fy_bar was capped
     fy_was_capped = (fy_bar > FY_CAP_MPA)
     fy_note = ""
@@ -740,6 +763,23 @@ def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
         "s_crack_mm":     s_crack,
         "s_max_top_mm":   s_max_top,
         "fs_service_mpa": fs_serv,
+        # Selected top-bar schedule for detailing
+        "top_bar_area_mm2": A_top_bar,
+        "top_edge_inset_mm": edge_inset,
+        "top_usable_x_mm": usable_x,
+        "top_usable_y_mm": usable_y,
+        "top_x_n_bars": top_x_n,
+        "top_y_n_bars": top_y_n,
+        "top_x_spacing_mm": top_x_spacing,
+        "top_y_spacing_mm": top_y_spacing,
+        "top_x_As_provided_mm2": top_x_As,
+        "top_y_As_provided_mm2": top_y_As,
+        "top_x_n_area": top_x_n_area,
+        "top_y_n_area": top_y_n_area,
+        "top_x_n_spacing": top_x_n_spacing,
+        "top_y_n_spacing": top_y_n_spacing,
+        "top_x_spacing_OK": top_x_spacing <= s_max_top + 1e-6,
+        "top_y_spacing_OK": top_y_spacing <= s_max_top + 1e-6,
     }
 
 

@@ -335,8 +335,10 @@ def _plot_top_rebar_fig(coords, D, lx, ly, cx, cy, col_size,
     As_x  = top_rebar.get("As_top_x_mm2", 0.0)
     As_y  = top_rebar.get("As_top_y_mm2", 0.0)
     s_max = top_rebar.get("s_max_top_mm", 450.0)
-    n_x   = max(2, int(_m.ceil(As_x / A_bar))) if As_x > 0 else 2
-    n_y   = max(2, int(_m.ceil(As_y / A_bar))) if As_y > 0 else 2
+    n_x_area = max(2, int(_m.ceil(As_x / A_bar))) if As_x > 0 else 2
+    n_y_area = max(2, int(_m.ceil(As_y / A_bar))) if As_y > 0 else 2
+    n_x = int(top_rebar.get("top_x_n_bars", n_x_area))
+    n_y = int(top_rebar.get("top_y_n_bars", n_y_area))
 
     fig, ax = plt.subplots(figsize=(7.5, 7.5))
     # Cap outline
@@ -1119,10 +1121,19 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
             tr.get("fy_note", "")))
 
         _make_table(doc,
-                    ['Direction', 'As_top req (mm²)', 'Design Basis'],
+                    ['Direction', 'As_top req (mm²)', 'Recommended bars',
+                     'Spacing s (mm)', 'As prov (mm²)', 'Design Basis'],
                     [['X', '{:.0f}'.format(tr['As_top_x_mm2']),
+                      '{}-{}'.format(tr.get('top_x_n_bars', 2),
+                                     tr.get('top_bar_size', 'DB20')),
+                      '{:.0f}'.format(tr.get('top_x_spacing_mm', 0.0)),
+                      '{:.0f}'.format(tr.get('top_x_As_provided_mm2', 0.0)),
                       tr['governs_x']],
                      ['Y', '{:.0f}'.format(tr['As_top_y_mm2']),
+                      '{}-{}'.format(tr.get('top_y_n_bars', 2),
+                                     tr.get('top_bar_size', 'DB20')),
+                      '{:.0f}'.format(tr.get('top_y_spacing_mm', 0.0)),
+                      '{:.0f}'.format(tr.get('top_y_As_provided_mm2', 0.0)),
                       tr['governs_y']]])
         p = doc.add_paragraph()
         p.add_run("Note: ").bold = True
@@ -1163,14 +1174,8 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
                 '{n_x} × {bar} (X-dir, amber) and '
                 '{n_y} × {bar} (Y-dir, teal dashed). '
                 'fy_design = {fy:.0f} MPa, s_max = {s:.0f} mm'.format(
-                    n_x=max(2, int(__import__('math').ceil(
-                        tr['As_top_x_mm2'] / {"DB12":113.10,"DB16":201.06,
-                        "DB20":314.16,"DB25":490.87,"DB28":615.75,
-                        "DB32":804.25}.get(tr.get('top_bar_size','DB20'), 314.16)))),
-                    n_y=max(2, int(__import__('math').ceil(
-                        tr['As_top_y_mm2'] / {"DB12":113.10,"DB16":201.06,
-                        "DB20":314.16,"DB25":490.87,"DB28":615.75,
-                        "DB32":804.25}.get(tr.get('top_bar_size','DB20'), 314.16)))),
+                    n_x=tr.get('top_x_n_bars', 2),
+                    n_y=tr.get('top_y_n_bars', 2),
                     bar=tr.get('top_bar_size', 'DB20'),
                     fy=tr.get('fy_design_mpa', 390),
                     s=tr.get('s_max_top_mm', 450))).italic = True

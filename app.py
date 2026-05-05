@@ -992,6 +992,16 @@ As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
         st.markdown("### ผลการคำนวณ  (fy_d = {:.0f} MPa — {})".format(
             tr["fy_design_mpa"], tr["fy_note"]))
 
+        _top_bar = tr.get("top_bar_size", _chosen_bar)
+        _top_x_detail = "{}-{} @ {:.0f} mm (As={:.0f})".format(
+            int(tr.get("top_x_n_bars", 2)), _top_bar,
+            tr.get("top_x_spacing_mm", 0.0),
+            tr.get("top_x_As_provided_mm2", 0.0))
+        _top_y_detail = "{}-{} @ {:.0f} mm (As={:.0f})".format(
+            int(tr.get("top_y_n_bars", 2)), _top_bar,
+            tr.get("top_y_spacing_mm", 0.0),
+            tr.get("top_y_As_provided_mm2", 0.0))
+
         res_df = pd.DataFrame([
             {"Check": "Ag gross strip",
              "ρ used": "—",
@@ -1008,6 +1018,11 @@ As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
              "As_X req (mm²)": "{:.0f}".format(tr["As_top_x_mm2"]),
              "As_Y req (mm²)": "{:.0f}".format(tr["As_top_y_mm2"]),
              "ใช้เป็น As_top": "✅ Yes"},
+            {"Check": "Recommended top bars",
+             "ρ used": "—",
+             "As_X req (mm²)": _top_x_detail,
+             "As_Y req (mm²)": _top_y_detail,
+             "ใช้เป็น As_top": "Detailing"},
         ])
         st.dataframe(res_df, use_container_width=True, hide_index=True)
 
