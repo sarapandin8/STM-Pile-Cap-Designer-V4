@@ -1112,6 +1112,13 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
                   "centroid of the tie crosses the extended nodal zone. "
                   "Required ld and ldh are checked below:")
         p = doc.add_paragraph()
+        p.add_run('Anchorage mode: ').bold = True
+        p.add_run('{}; bottom bar z = {:.0f} mm; vertical hook available = {:.0f} mm'.format(
+            inputs.get('anchorage_mode', anch_x.get('anchorage_mode', 'Horizontal to edge')),
+            inputs.get('anchorage_bottom_z', 0.0),
+            inputs.get('anchorage_vertical_hook_avail',
+                       anch_x.get('available_vertical_hook_mm') or 0.0)))
+        p = doc.add_paragraph()
         p.add_run("• ld (straight)  ≈ (fy·ψs / 1.1λ√f'c·(cb+Ktr)/db)·db   "
                   "(ACI Eq. 25.4.2.3a)")
         p = doc.add_paragraph()
@@ -1119,13 +1126,15 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
                   "(ACI Eq. 25.4.3.1a)")
         _make_table(doc,
             ['Direction', 'Bar', 'ld req (mm)', 'ldh req (mm)',
-             'Avail straight (mm)', 'Avail hook (mm)', 'Recommended'],
+             'Avail straight (mm)', 'Avail hook (mm)', 'Mode',
+             'Recommended'],
             [["X",
               anch_x["bar_size"],
               "{:.0f}".format(anch_x["ld_required_mm"]),
               "{:.0f}".format(anch_x["ldh_required_mm"]),
               "{:.0f}".format(anch_x["available_straight_mm"]),
               "{:.0f}".format(anch_x["available_hook_mm"]),
+              anch_x.get("anchorage_mode", "—"),
               anch_x["recommended"]],
              ["Y",
               anch_y["bar_size"],
@@ -1133,6 +1142,7 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
               "{:.0f}".format(anch_y["ldh_required_mm"]),
               "{:.0f}".format(anch_y["available_straight_mm"]),
               "{:.0f}".format(anch_y["available_hook_mm"]),
+              anch_y.get("anchorage_mode", "—"),
               anch_y["recommended"]]])
 
     # 6. Top-Face Minimum Reinforcement

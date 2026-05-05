@@ -895,23 +895,41 @@ def development_length(bar_size_str, fc_mpa, fy_mpa,
 
 
 def check_anchorage(bar_size, fc, fy,
-                    available_straight_mm, available_hook_mm):
+                    available_straight_mm, available_hook_mm,
+                    mode="Horizontal to edge",
+                    available_vertical_hook_mm=None):
     """Verify CCT-node anchorage at piles per ACI 318-19 §23.8.3 + §25.4."""
     ld = development_length(bar_size, fc, fy, hooked=False)
     ldh = development_length(bar_size, fc, fy, hooked=True)
+    hook_avail = (
+        available_vertical_hook_mm
+        if available_vertical_hook_mm is not None
+        else available_hook_mm
+    )
     straight_ok = available_straight_mm >= ld
-    hook_ok = available_hook_mm >= ldh
+    hook_ok = hook_avail >= ldh
     if straight_ok:
         rec = "Straight bar OK"
     elif hook_ok:
-        rec = "Use 90° or 180° standard hook"
+        rec = (
+            "90° vertical hook OK"
+            if str(mode).startswith("90")
+            else "Use 90° or 180° standard hook"
+        )
     else:
-        rec = "INSUFFICIENT — increase cap dim or use larger hook"
+        rec = (
+            "INSUFFICIENT — increase cap thickness or lower bottom bar"
+            if str(mode).startswith("90")
+            else "INSUFFICIENT — increase cap dim or use larger hook"
+        )
     return {
         "bar_size": bar_size,
         "ld_required_mm": ld, "ldh_required_mm": ldh,
         "available_straight_mm": available_straight_mm,
-        "available_hook_mm": available_hook_mm,
+        "available_hook_mm": hook_avail,
+        "available_edge_hook_mm": available_hook_mm,
+        "available_vertical_hook_mm": available_vertical_hook_mm,
+        "anchorage_mode": mode,
         "straight_ok": straight_ok, "hook_ok": hook_ok,
         "ok": straight_ok or hook_ok,
         "recommended": rec,

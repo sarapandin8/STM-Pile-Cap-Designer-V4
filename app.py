@@ -204,16 +204,30 @@ def _design_recommendations(results, x_chk=None, y_chk=None,
             action)
 
     if anch_x is not None and not anch_x.get("ok", True):
+        if str(anch_x.get("anchorage_mode", "")).startswith("90"):
+            action = ("Increase cap thickness, lower the bottom-bar layer if "
+                      "pile-head embedment/detailing permits, use a smaller "
+                      "bar, or provide a qualified headed/mechanical anchor.")
+        else:
+            action = ("Increase cap edge distance in X, use standard hooks/"
+                      "headed bars, or use smaller diameter bars.")
         add(
             "Anchorage X",
             "Available development length is less than required.",
-            "Increase cap edge distance in X, use standard hooks/headed bars, or use smaller diameter bars.")
+            action)
 
     if anch_y is not None and not anch_y.get("ok", True):
+        if str(anch_y.get("anchorage_mode", "")).startswith("90"):
+            action = ("Increase cap thickness, lower the bottom-bar layer if "
+                      "pile-head embedment/detailing permits, use a smaller "
+                      "bar, or provide a qualified headed/mechanical anchor.")
+        else:
+            action = ("Increase cap edge distance in Y, use standard hooks/"
+                      "headed bars, or use smaller diameter bars.")
         add(
             "Anchorage Y",
             "Available development length is less than required.",
-            "Increase cap edge distance in Y, use standard hooks/headed bars, or use smaller diameter bars.")
+            action)
 
     if not recs and not results.get("overall_OK", True):
         add(
@@ -255,6 +269,8 @@ DEFAULTS = {
     "custom_shape": "Square",
     "x_bar": "DB20", "x_n": 8,
     "y_bar": "DB20", "y_n": 8,
+    "anchorage_mode": "90° Vertical Hook",
+    "anchorage_bottom_z": 150.0,
     "top_bar_size": "DB20",
     "wcap_uls_factor": 1.2,
 }
@@ -548,6 +564,18 @@ with st.sidebar:
     cA.number_input("X-dir count", 2, 400, step=1, key="x_n")
     cB.selectbox("Y-dir bar", bar_options, key="y_bar")
     cB.number_input("Y-dir count", 2, 400, step=1, key="y_n")
+    st.selectbox(
+        "Anchorage mode",
+        ["90° Vertical Hook", "Horizontal to edge"],
+        key="anchorage_mode",
+        help=("90° Vertical Hook checks the hook leg up through the cap "
+              "thickness. Horizontal to edge uses the plan edge distance."))
+    st.number_input(
+        "Bottom bar z from cap bottom (mm)",
+        min_value=0.0, step=10.0, key="anchorage_bottom_z",
+        disabled=(st.session_state.anchorage_mode != "90° Vertical Hook"),
+        help=("Approximate centroid level of bottom tie bars above the cap "
+              "bottom. Include pile-head embedment and detailing clearance."))
     x_bar = st.session_state.x_bar
     x_n = st.session_state.x_n
     y_bar = st.session_state.y_bar
@@ -745,10 +773,23 @@ if "_stm_results" in st.session_state:
     avail_hook_x = avail_str_x - cover
     avail_str_y = min(e_top, e_bot) + _gov_max/4.0 - cover
     avail_hook_y = avail_str_y - cover
+    anchorage_mode = st.session_state.get(
+        "anchorage_mode", "90° Vertical Hook")
+    bottom_bar_z = float(st.session_state.get("anchorage_bottom_z", 150.0))
+    avail_vertical_hook = max(0.0, h_cap - bottom_bar_z - cover)
+    use_vertical_hook = (anchorage_mode == "90° Vertical Hook")
     anch_x = check_anchorage(x_bar, fc, results.get("fy_x_design_mpa", fy),
-                             avail_str_x, avail_hook_x)
+                             avail_str_x, avail_hook_x,
+                             mode=anchorage_mode,
+                             available_vertical_hook_mm=(
+                                 avail_vertical_hook if use_vertical_hook
+                                 else None))
     anch_y = check_anchorage(y_bar, fc, results.get("fy_y_design_mpa", fy),
-                             avail_str_y, avail_hook_y)
+                             avail_str_y, avail_hook_y,
+                             mode=anchorage_mode,
+                             available_vertical_hook_mm=(
+                                 avail_vertical_hook if use_vertical_hook
+                                 else None))
 
     # Top-face reinforcement — always recomputed fresh (dropdown-safe)
     top_rebar = compute_top_reinforcement(
@@ -942,6 +983,10 @@ if "_stm_results" in st.session_state:
             "Per **ACI 318-19 §23.8.3** tie reinforcement must "
             "develop fy at the point where the centroid of the tie "
             "crosses the extended nodal zone (CCT node above pile).")
+        st.caption(
+            "Anchorage mode: {} | Bottom bar z = {:.0f} mm | "
+            "Vertical hook available = {:.0f} mm".format(
+                anchorage_mode, bottom_bar_z, avail_vertical_hook))
         _formula_box(
             "ld  ≈ (fy·ψs / 1.1·λ·√f'c · (cb+Ktr)/db) · db   "
             "(ACI 25.4.2.3)\n"
@@ -958,6 +1003,7 @@ if "_stm_results" in st.session_state:
                  "{:.0f}".format(anch_x["available_straight_mm"]),
              "Avail. hook":
                  "{:.0f}".format(anch_x["available_hook_mm"]),
+             "Mode": anch_x.get("anchorage_mode", "—"),
              "Recommended": anch_x["recommended"],
              "Status": "✅" if anch_x["ok"] else "❌"},
             {"Direction": "Y", "Bar": anch_y["bar_size"],
@@ -969,6 +1015,7 @@ if "_stm_results" in st.session_state:
                  "{:.0f}".format(anch_y["available_straight_mm"]),
              "Avail. hook":
                  "{:.0f}".format(anch_y["available_hook_mm"]),
+             "Mode": anch_y.get("anchorage_mode", "—"),
              "Recommended": anch_y["recommended"],
              "Status": "✅" if anch_y["ok"] else "❌"},
         ])
@@ -976,12 +1023,20 @@ if "_stm_results" in st.session_state:
                      hide_index=True)
 
         if not (anch_x["ok"] and anch_y["ok"]):
-            st.warning(
-                "⚠️ Anchorage insufficient. Consider: "
-                "(a) larger cap dimensions, "
-                "(b) using 90°/180° standard hooks, "
-                "(c) headed bars (ACI 25.4.4), "
-                "or (d) smaller bar diameter.")
+            if use_vertical_hook:
+                st.warning(
+                    "⚠️ Vertical hook anchorage insufficient. Consider: "
+                    "(a) increasing cap thickness, "
+                    "(b) reducing bottom bar z if detailing permits, "
+                    "(c) using smaller bar diameter, or "
+                    "(d) headed/mechanical anchorage.")
+            else:
+                st.warning(
+                    "⚠️ Anchorage insufficient. Consider: "
+                    "(a) larger cap dimensions, "
+                    "(b) using 90°/180° standard hooks, "
+                    "(c) headed bars (ACI 25.4.4), "
+                    "or (d) smaller bar diameter.")
 
         with st.expander("Assumptions used"):
             st.markdown(
@@ -990,7 +1045,8 @@ if "_stm_results" in st.session_state:
                 "ψg=1.0 (Gr 420), ψr=ψo=ψc=1.0\n"
                 "- (cb+Ktr)/db = 1.5 (conservative typical value)\n"
                 "- Available straight = min edge dist + D/4 − cover  # PATCHED: inner face of CCT node\n"
-                "- Available hook = available straight − cover")
+                "- Horizontal edge hook = available straight − cover\n"
+                "- 90° vertical hook = h_cap − bottom bar z − top cover")
 
     with t7:
         st.markdown("## 🪟 Top-Face Minimum Reinforcement")
@@ -1288,6 +1344,9 @@ As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
         "W_cap_nom_kN": _cap_area_m2(cap_polygon, cap_lx, cap_ly) * (h_cap/1000.0) * 24.0,
         "wcap_uls_factor": st.session_state.wcap_uls_factor,
         "Pu_total_kN": results["Pu_total_kN"],
+        "anchorage_mode": anchorage_mode,
+        "anchorage_bottom_z": bottom_bar_z,
+        "anchorage_vertical_hook_avail": avail_vertical_hook,
         "D": D, "h_cap": h_cap, "col_size": col_size,
         "coords": coords,
         "cap_lx": cap_lx, "cap_ly": cap_ly,
