@@ -26,6 +26,24 @@ def _cap_area_m2(cap_polygon, cap_lx, cap_ly):
     return (cap_lx / 1000.0) * (cap_ly / 1000.0)
 
 
+def _formula_box(text):
+    """Render formula text without Streamlit's dynamic syntax highlighter."""
+    safe = (str(text)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;"))
+    st.markdown(
+        (
+            '<div style="font-family: ui-monospace, SFMono-Regular, Menlo, '
+            'Consolas, Liberation Mono, monospace; white-space: pre-wrap; '
+            'background:#f8fafc; border:1px solid #e2e8f0; '
+            'border-radius:6px; padding:0.65rem 0.75rem; '
+            'color:#0f172a; font-size:0.92rem; line-height:1.45;">'
+            '{}</div>'
+        ).format(safe),
+        unsafe_allow_html=True)
+
+
 def _design_recommendations(results, x_chk=None, y_chk=None,
                             anch_x=None, anch_y=None,
                             opt_x=None, opt_y=None, cover=75.0):
@@ -686,7 +704,9 @@ if "_stm_results" in st.session_state:
                            cap_cx, cap_cy, cap_polygon),
             use_container_width=True)
         st.markdown("**Pile Reactions** (rigid-cap formula)")
-        st.code("P_i = Pu_total/n + Mux,c*y'_i / sum(y'_j^2) + Muy,c*x'_i / sum(x'_j^2)")
+        _formula_box(
+            "P_i = Pu_total/n + Mux,c*y'_i / sum(y'_j^2) "
+            "+ Muy,c*x'_i / sum(x'_j^2)")
         rdf = pd.DataFrame([{
             "Pile": "P{}".format(i+1),
             "X (mm)": "{:.0f}".format(c[0]),
@@ -833,7 +853,7 @@ if "_stm_results" in st.session_state:
             "Per **ACI 318-19 §23.8.3** tie reinforcement must "
             "develop fy at the point where the centroid of the tie "
             "crosses the extended nodal zone (CCT node above pile).")
-        st.code(
+        _formula_box(
             "ld  ≈ (fy·ψs / 1.1·λ·√f'c · (cb+Ktr)/db) · db   "
             "(ACI 25.4.2.3)\n"
             "ldh ≈ (fy / 23·λ·√f'c) · db^1.5                "
@@ -927,19 +947,19 @@ if "_stm_results" in st.session_state:
         with st.expander("📖 Code Basis (ACI 318-19) — คลิกเพื่อดูรายละเอียด"):
             st.markdown("""
 **Check A — Temperature & Shrinkage  §24.4.3.2 Table 24.4.3.2**
-```
+
 Ag_x = ly × h_cap
 Ag_y = lx × h_cap
 As_min,bottom = 0.0018 × Ag
 As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
-```
+
 **Spacing Limits**
-```
+
 §24.4.3.3 : s ≤ min(3h, 450 mm)
 §24.3.2   : s ≤ min(380×(280/fs), 300×(280/fs))  where fs = (2/3)fy_d
     (only becomes active when fy_d > 420 MPa)
 §20.2.2.4 : fy_d used in design capped at 550 MPa
-```
+
             """)
 
         # ── Numeric Results ──────────────────────────────────
