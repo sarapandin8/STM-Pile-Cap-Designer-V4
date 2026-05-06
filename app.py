@@ -274,6 +274,9 @@ def _design_recommendations(results, x_chk=None, y_chk=None,
     return recs
 
 
+import stm_visualization as _stm_visualization
+_stm_visualization = importlib.reload(_stm_visualization)
+
 from stm_visualization import (
     plot_layout_preview, plot_plan_view,
     plot_elevation, plot_rebar_layout, plot_3d_view,
@@ -309,6 +312,7 @@ DEFAULTS = {
     "anchorage_mode": "90° Vertical Hook",
     "anchorage_bottom_z": 150.0,
     "top_bar_size": "DB20",
+    "show_3d_force_labels": True,
     "wcap_uls_factor": 1.2,
 }
 _had_spacing_x = "spacing_factor_x" in st.session_state
@@ -897,10 +901,13 @@ if "_stm_results" in st.session_state:
             use_container_width=True)
     
     with t6:
+        st.checkbox("Show strut/tie force labels",
+                    key="show_3d_force_labels")
         st.plotly_chart(
             plot_3d_view(coords, D, cap_lx, cap_ly,
                          cap_cx, cap_cy, col_size, h_cap,
-                         cap_polygon, results),
+                         cap_polygon, results,
+                         show_force_labels=st.session_state.show_3d_force_labels),
             use_container_width=True)
         st.caption(
             "🖱️ **Drag** to rotate | **Scroll** to zoom | "

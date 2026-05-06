@@ -496,7 +496,8 @@ def _cylinder_mesh(cx, cy, z0, z1, r, color, opacity=0.85, lighting=None, n=24):
 
 def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
                  col_size, h_cap, cap_polygon, results,
-                 pile_length=1500.0, col_height=600.0):
+                 pile_length=1500.0, col_height=600.0,
+                 show_force_labels=True):
     """3D interactive view: cap, piles, column, struts, ties."""
     fig = go.Figure()
 
@@ -573,13 +574,25 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
     col_top_z = h_cap + col_height/2
     pile_top_z = (pdm if sec_p == "Circular" else pbx) / 2.0
     Fs_max = max((s["F_strut_kN"] for s in results.get("struts", [])), default=1.0)
+    struts = results.get("struts", [])
     
     STRUT_LOW = "#2980b9"   # ปรับสีให้เข้มขึ้นเล็กน้อย
     STRUT_MID = "#f39c12"
     STRUT_HIGH = "#c0392b"
     TIE_COLOR = "#27ae60"
+
+    def _force_text(prefix, value):
+        return "{}<br>{:.0f} kN".format(prefix, float(value))
+
+    def _add_force_label(x, y, z, text, color, size=10):
+        if not show_force_labels:
+            return
+        fig.add_trace(go.Scatter3d(
+            x=[x], y=[y], z=[z], mode="text", text=[text],
+            textfont=dict(color=color, size=size),
+            hoverinfo="skip", showlegend=False))
     
-    for s in results.get("struts", []):
+    for idx, s in enumerate(struts, 1):
         x, y = s["coord"]
         dcr_ratio = s["F_strut_kN"] / Fs_max if Fs_max > 0 else 0
         if dcr_ratio > 0.85:
@@ -595,6 +608,27 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
             hovertext=("Strut: F={:.0f}kN, θ={:.1f}°".format(
                 s["F_strut_kN"], s["theta_deg"])),
             hoverinfo="text", showlegend=False, name="Strut"))
+        _add_force_label(
+            (col_x + x) / 2.0, (col_y + y) / 2.0,
+            (col_top_z + pile_top_z) / 2.0,
+            _force_text("S{}".format(idx), s["F_strut_kN"]),
+            dcr_color, size=11)
+
+    def _tie_force_and_name(i, j, x1, y1, x2, y2):
+        if i >= len(struts) or j >= len(struts):
+            return 0.0, "Tie"
+        sx_i = abs(struts[i].get("F_tie_x_kN", 0.0))
+        sx_j = abs(struts[j].get("F_tie_x_kN", 0.0))
+        sy_i = abs(struts[i].get("F_tie_y_kN", 0.0))
+        sy_j = abs(struts[j].get("F_tie_y_kN", 0.0))
+        if abs(y1 - y2) < tol:
+            return max(sx_i, sx_j), "Tie X"
+        if abs(x1 - x2) < tol:
+            return max(sy_i, sy_j), "Tie Y"
+        if results.get("is_3pile_resultant"):
+            return results.get("F_tie_res_kN", 0.0), "Tie R"
+        return max((sx_i**2 + sy_i**2)**0.5,
+                   (sx_j**2 + sy_j**2)**0.5), "Tie R"
 
     tol = 1.0
     is_triangular_base = len(coords) == 3
@@ -602,13 +636,21 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
         for j in range(i+1, len(coords)):
             (x1, y1) = coords[i]; (x2, y2) = coords[j]
             if is_triangular_base or abs(x1 - x2) < tol or abs(y1 - y2) < tol:
+                tie_force, tie_name = _tie_force_and_name(i, j, x1, y1, x2, y2)
                 fig.add_trace(go.Scatter3d(
                     x=[x1, x2], y=[y1, y2],
                     z=[pile_top_z, pile_top_z],
                     mode="lines",
                     line=dict(color=TIE_COLOR, width=6, dash="dot"),
-                    hovertext="Tie (P{}-P{})".format(i+1, j+1),
+                    hovertext=(
+                        "{} (P{}-P{}): F≈{:.0f} kN".format(
+                            tie_name, i+1, j+1, tie_force)),
                     hoverinfo="text", showlegend=False))
+                _add_force_label(
+                    (x1 + x2) / 2.0, (y1 + y2) / 2.0,
+                    pile_top_z + max(60.0, 0.04 * h_cap),
+                    _force_text("T{}-{}".format(i+1, j+1), tie_force),
+                    TIE_COLOR, size=9)
 
     # Pile labels
     for idx, (px, py) in enumerate(coords, 1):
