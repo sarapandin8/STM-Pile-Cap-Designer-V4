@@ -580,16 +580,25 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
     STRUT_MID = "#f39c12"
     STRUT_HIGH = "#c0392b"
     TIE_COLOR = "#27ae60"
+    LABEL_FONT = "Arial Black, Arial, sans-serif"
+    FORCE_LABEL_COLOR = "#111827"
+    TIE_LABEL_COLOR = "#064e3b"
 
     def _force_text(prefix, value):
-        return "{}<br>{:.0f} kN".format(prefix, float(value))
+        return "<b>{}</b><br><b>{:.0f} kN</b>".format(
+            prefix, float(value))
 
-    def _add_force_label(x, y, z, text, color, size=10):
+    def _add_force_label(x, y, z, text, color, size=12):
         if not show_force_labels:
             return
         fig.add_trace(go.Scatter3d(
-            x=[x], y=[y], z=[z], mode="text", text=[text],
-            textfont=dict(color=color, size=size),
+            x=[x], y=[y], z=[z], mode="markers+text", text=[text],
+            textfont=dict(color=color, size=size, family=LABEL_FONT),
+            textposition="middle center",
+            marker=dict(
+                size=max(5, size - 6),
+                color="rgba(255,255,255,0.96)",
+                line=dict(color=color, width=2)),
             hoverinfo="skip", showlegend=False))
     
     for idx, s in enumerate(struts, 1):
@@ -612,7 +621,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
             (col_x + x) / 2.0, (col_y + y) / 2.0,
             (col_top_z + pile_top_z) / 2.0,
             _force_text("S{}".format(idx), s["F_strut_kN"]),
-            dcr_color, size=11)
+            FORCE_LABEL_COLOR, size=14)
 
     def _tie_force_and_name(i, j, x1, y1, x2, y2):
         if i >= len(struts) or j >= len(struts):
@@ -650,14 +659,14 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
                     (x1 + x2) / 2.0, (y1 + y2) / 2.0,
                     pile_top_z + max(60.0, 0.04 * h_cap),
                     _force_text("T{}-{}".format(i+1, j+1), tie_force),
-                    TIE_COLOR, size=9)
+                    TIE_LABEL_COLOR, size=12)
 
     # Pile labels
     for idx, (px, py) in enumerate(coords, 1):
         fig.add_trace(go.Scatter3d(
             x=[px], y=[py], z=[-pile_length/2],
             mode="text", text=["P{}".format(idx)],
-            textfont=dict(color="white", size=12),
+            textfont=dict(color="white", size=13, family=LABEL_FONT),
             hoverinfo="skip", showlegend=False))
 
     fig.update_layout(
