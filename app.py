@@ -153,6 +153,57 @@ def _check_anchorage_with_mode(bar_size, fc, fy_mpa,
     return out
 
 
+def _design_force_summary_rows(results):
+    """Summarize the force demands actually used by the design checks."""
+    rows = []
+    struts = results.get("struts", [])
+    if struts:
+        gov_idx, gov_strut = max(
+            enumerate(struts, 1),
+            key=lambda item: item[1].get("F_strut_kN", 0.0))
+        rows.append({
+            "Component": "Strut compression",
+            "Governing member / path": "S{} to P{}".format(gov_idx, gov_idx),
+            "Design force (kN)": "{:.1f}".format(
+                results.get("F_strut_max_kN",
+                            gov_strut.get("F_strut_kN", 0.0))),
+            "Used for": "Strut capacity DCR",
+            "Notes": "max F_strut among all struts",
+        })
+
+    if results.get("is_3pile_resultant"):
+        rows.append({
+            "Component": "Tie resultant",
+            "Governing member / path": "3-pile resultant",
+            "Design force (kN)": "{:.1f}".format(
+                results.get("F_tie_res_kN", 0.0)),
+            "Used for": "Bottom X/Y As_STM",
+            "Notes": "coordinate-rotation independent resultant",
+        })
+    else:
+        rows.extend([
+            {
+                "Component": "Tie X direction",
+                "Governing member / path": "max left/right tie demand",
+                "Design force (kN)": "{:.1f}".format(
+                    results.get("F_tie_x_design_kN",
+                                results.get("F_tie_x_max_kN", 0.0))),
+                "Used for": "Bottom X As_STM",
+                "Notes": results.get("As_x_governs", ""),
+            },
+            {
+                "Component": "Tie Y direction",
+                "Governing member / path": "max front/back tie demand",
+                "Design force (kN)": "{:.1f}".format(
+                    results.get("F_tie_y_design_kN",
+                                results.get("F_tie_y_max_kN", 0.0))),
+                "Used for": "Bottom Y As_STM",
+                "Notes": results.get("As_y_governs", ""),
+            },
+        ])
+    return rows
+
+
 def _design_recommendations(results, x_chk=None, y_chk=None,
                             anch_x=None, anch_y=None,
                             opt_x=None, opt_y=None, cover=75.0):
@@ -916,6 +967,16 @@ if "_stm_results" in st.session_state:
             "**Color legend (Struts):** "
             "🟢 DCR < 60% | 🟠 60–85% | 🔴 > 85%  &nbsp;&nbsp; "
             "**Ties** shown as dotted green lines.")
+        force_summary_rows = _design_force_summary_rows(results)
+        if force_summary_rows:
+            st.markdown("### Design Force Summary")
+            st.dataframe(
+                pd.DataFrame(force_summary_rows),
+                use_container_width=True, hide_index=True)
+            st.caption(
+                "Strut force is the maximum compression demand used for the "
+                "strut DCR check. Tie force is the STM demand used for bottom "
+                "reinforcement before comparing with minimum reinforcement.")
     
     with t3:
         st.markdown("### Required Reinforcement")

@@ -596,7 +596,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
             textfont=dict(color=color, size=size, family=LABEL_FONT),
             textposition="middle center",
             marker=dict(
-                size=max(5, size - 6),
+                size=max(3, (size - 6) / 2.0),
                 color="rgba(255,255,255,0.96)",
                 line=dict(color=color, width=2)),
             hoverinfo="skip", showlegend=False))
