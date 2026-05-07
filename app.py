@@ -225,23 +225,78 @@ def _strut_force_rows(results):
     return rows
 
 
-def _tie_member_rows(coords):
-    """Return tie labels and pile endpoints used by the 3D view."""
+def _signed_strut_component(struts, idx, axis):
+    if idx >= len(struts):
+        return 0.0
+    s = struts[idx]
+    if axis == "x":
+        comp = abs(float(s.get("F_tie_x_kN", 0.0)))
+        delta = float(s.get("dx_from_col", 0.0))
+    else:
+        comp = abs(float(s.get("F_tie_y_kN", 0.0)))
+        delta = float(s.get("dy_from_col", 0.0))
+    if abs(delta) <= 1e-9:
+        return 0.0
+    return math.copysign(comp, delta)
+
+
+def _tie_member_rows(coords, results):
+    """Return tie labels, endpoints, and estimated member forces.
+
+    Forces are for the displayed tie paths and are estimated from cut
+    equilibrium of the local strut horizontal components in the same row or
+    column. The governing design forces remain the Tx/Ty summary above.
+    """
     rows = []
+    struts = results.get("struts", [])
     for tie_idx, (i, j) in enumerate(tie_pairs_for_3d_view(coords), 1):
         x1, y1 = coords[i]
         x2, y2 = coords[j]
         if abs(y1 - y2) <= 1.0:
             direction = "X tie path"
+            cut = (x1 + x2) / 2.0
+            row_ids = [
+                k for k, (_x, _y) in enumerate(coords)
+                if abs(_y - y1) <= 1.0
+            ]
+            left = sum(
+                _signed_strut_component(struts, k, "x")
+                for k in row_ids if coords[k][0] <= cut
+            )
+            right = sum(
+                _signed_strut_component(struts, k, "x")
+                for k in row_ids if coords[k][0] > cut
+            )
+            force = max(abs(left), abs(right))
+            basis = "X cut at x={:.0f} mm".format(cut)
         elif abs(x1 - x2) <= 1.0:
             direction = "Y tie path"
+            cut = (y1 + y2) / 2.0
+            col_ids = [
+                k for k, (_x, _y) in enumerate(coords)
+                if abs(_x - x1) <= 1.0
+            ]
+            lower = sum(
+                _signed_strut_component(struts, k, "y")
+                for k in col_ids if coords[k][1] <= cut
+            )
+            upper = sum(
+                _signed_strut_component(struts, k, "y")
+                for k in col_ids if coords[k][1] > cut
+            )
+            force = max(abs(lower), abs(upper))
+            basis = "Y cut at y={:.0f} mm".format(cut)
         else:
             direction = "Diagonal tie path"
+            force = results.get("F_tie_res_kN", 0.0)
+            basis = "3-pile resultant"
         rows.append({
             "Tie": "T{}".format(tie_idx),
             "From": "P{}".format(i + 1),
             "To": "P{}".format(j + 1),
             "Path": direction,
+            "Tie force (kN)": "{:.1f}".format(force),
+            "Basis": basis,
         })
     return rows
 
@@ -1059,12 +1114,16 @@ if "_stm_results" in st.session_state:
             st.dataframe(
                 pd.DataFrame(strut_force_rows),
                 use_container_width=True, hide_index=True)
-        tie_member_rows = _tie_member_rows(coords)
+        tie_member_rows = _tie_member_rows(coords, results)
         if tie_member_rows:
-            st.markdown("### Tie Member Labels")
+            st.markdown("### Tie Forces by Member")
             st.dataframe(
                 pd.DataFrame(tie_member_rows),
                 use_container_width=True, hide_index=True)
+            st.caption(
+                "Tie member forces are estimated for the displayed T# paths "
+                "from cut equilibrium of local strut components. Use the "
+                "Design Force Summary for governing bottom reinforcement.")
     
     with t3:
         st.markdown("### Required Reinforcement")
