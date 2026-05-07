@@ -587,8 +587,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
     TIE_LABEL_COLOR = "#064e3b"
 
     def _force_text(prefix, value):
-        return "<b>{}</b><br><b>{:.0f} kN</b>".format(
-            prefix, float(value))
+        return "{}  {:.0f} kN".format(prefix, float(value))
 
     def _add_force_label(x, y, z, text, color, size=12):
         if not show_force_labels:

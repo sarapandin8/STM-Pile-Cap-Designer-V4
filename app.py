@@ -952,13 +952,11 @@ if "_stm_results" in st.session_state:
             use_container_width=True)
     
     with t6:
-        st.checkbox("Show strut/tie force labels",
-                    key="show_3d_force_labels")
         st.plotly_chart(
             plot_3d_view(coords, D, cap_lx, cap_ly,
                          cap_cx, cap_cy, col_size, h_cap,
                          cap_polygon, results,
-                         show_force_labels=st.session_state.show_3d_force_labels),
+                         show_force_labels=True),
             use_container_width=True)
         st.caption(
             "🖱️ **Drag** to rotate | **Scroll** to zoom | "
