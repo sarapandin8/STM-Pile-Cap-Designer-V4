@@ -204,6 +204,24 @@ def _design_force_summary_rows(results):
     return rows
 
 
+def _strut_force_rows(results):
+    """Return per-strut forces for the 3D-view force table."""
+    rows = []
+    for i, s in enumerate(results.get("struts", []), 1):
+        rows.append({
+            "Strut": "S{}".format(i),
+            "Pile": "P{}".format(i),
+            "P_i (kN)": "{:.1f}".format(s.get("P_i_kN", 0.0)),
+            "F_strut (kN)": "{:.1f}".format(s.get("F_strut_kN", 0.0)),
+            "θ (deg)": "{:.1f}".format(s.get("theta_deg", 0.0)),
+            "Tie comp X (kN)": "{:.1f}".format(
+                s.get("F_tie_x_kN", 0.0)),
+            "Tie comp Y (kN)": "{:.1f}".format(
+                s.get("F_tie_y_kN", 0.0)),
+        })
+    return rows
+
+
 def _design_recommendations(results, x_chk=None, y_chk=None,
                             anch_x=None, anch_y=None,
                             opt_x=None, opt_y=None, cover=75.0):
@@ -956,16 +974,17 @@ if "_stm_results" in st.session_state:
             plot_3d_view(coords, D, cap_lx, cap_ly,
                          cap_cx, cap_cy, col_size, h_cap,
                          cap_polygon, results,
-                         show_force_labels=True),
+                         show_force_labels=False),
             use_container_width=True)
         st.caption(
             "🖱️ **Drag** to rotate | **Scroll** to zoom | "
-            "**Shift+drag** to pan | **Double-click** to reset view")
+            "**Shift+drag** to pan | **Double-click** to reset view | "
+            "Hover on struts/ties to inspect force values.")
         st.markdown(
             "**Color legend (Struts):** "
             "🟢 DCR < 60% | 🟠 60–85% | 🔴 > 85%  &nbsp;&nbsp; "
-            "**Ties** shown as dotted green paths; labels show the governing "
-            "Tx/Ty design forces used for bottom reinforcement.")
+            "**Ties** shown as dotted green paths. Numerical design forces "
+            "are listed in the tables below.")
         force_summary_rows = _design_force_summary_rows(results)
         if force_summary_rows:
             st.markdown("### Design Force Summary")
@@ -976,6 +995,12 @@ if "_stm_results" in st.session_state:
                 "Strut force is the maximum compression demand used for the "
                 "strut DCR check. Tie force is the STM demand used for bottom "
                 "reinforcement before comparing with minimum reinforcement.")
+        strut_force_rows = _strut_force_rows(results)
+        if strut_force_rows:
+            st.markdown("### Strut Forces by Member")
+            st.dataframe(
+                pd.DataFrame(strut_force_rows),
+                use_container_width=True, hide_index=True)
     
     with t3:
         st.markdown("### Required Reinforcement")
