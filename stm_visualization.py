@@ -573,6 +573,8 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
     # --- 5. Struts & Ties (ส่วนที่เหลือเหมือนเดิม) ---
     col_top_z = h_cap + col_height/2
     pile_top_z = (pdm if sec_p == "Circular" else pbx) / 2.0
+    force_label_z = h_cap + col_height + max(100.0, 0.08 * h_cap)
+    tie_label_z = force_label_z + max(45.0, 0.03 * h_cap)
     Fs_max = max((s["F_strut_kN"] for s in results.get("struts", [])), default=1.0)
     struts = results.get("struts", [])
     
@@ -619,7 +621,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
             hoverinfo="text", showlegend=False, name="Strut"))
         _add_force_label(
             (col_x + x) / 2.0, (col_y + y) / 2.0,
-            (col_top_z + pile_top_z) / 2.0,
+            force_label_z,
             _force_text("S{}".format(idx), s["F_strut_kN"]),
             FORCE_LABEL_COLOR, size=14)
 
@@ -657,7 +659,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
                     hoverinfo="text", showlegend=False))
                 _add_force_label(
                     (x1 + x2) / 2.0, (y1 + y2) / 2.0,
-                    pile_top_z + max(60.0, 0.04 * h_cap),
+                    tie_label_z,
                     _force_text("T{}-{}".format(i+1, j+1), tie_force),
                     TIE_LABEL_COLOR, size=12)
 
