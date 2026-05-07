@@ -439,6 +439,65 @@ from report_generator import generate_report
 st.set_page_config(page_title="STM Pile Cap Designer",
                    layout="wide", page_icon="🏗️")
 
+st.markdown(
+    """
+    <style>
+    div[data-testid="stTabs"] div[data-baseweb="tab-list"] {
+        gap: 0.35rem;
+        flex-wrap: wrap;
+        border-bottom: 2px solid #cbd5e1;
+        padding: 0.25rem 0 0.45rem 0;
+        margin-bottom: 0.75rem;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        height: 2.65rem;
+        padding: 0 0.95rem;
+        border: 1px solid #d7dee8;
+        border-bottom-color: #cbd5e1;
+        border-radius: 8px 8px 0 0;
+        background: #f8fafc;
+        color: #334155;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+        transition: background 120ms ease, border-color 120ms ease,
+                    color 120ms ease, box-shadow 120ms ease;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"] p {
+        font-size: 0.96rem;
+        font-weight: 650;
+        line-height: 1.1;
+        white-space: nowrap;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover {
+        background: #eef6ff;
+        border-color: #93c5fd;
+        color: #0f4c81;
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
+        background: #0f4c81;
+        border-color: #0f4c81;
+        color: #ffffff;
+        box-shadow: 0 3px 10px rgba(15, 76, 129, 0.25);
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] p {
+        color: #ffffff;
+        font-weight: 750;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"]::after {
+        background-color: #f59e0b;
+        height: 4px;
+        border-radius: 999px 999px 0 0;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True)
+
 # --------- Session-state defaults (for save/load) ---------
 DEFAULTS = {
     "fc": 28.0, "fy": 420.0, "cover": 75,
