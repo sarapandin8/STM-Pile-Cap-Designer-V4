@@ -415,15 +415,15 @@ def _column_footprint_bounds(col, col_x, col_y):
 def _strut_top_node_for_pile(x, y, col, col_x, col_y, stm_model_type):
     """Return the compression node used for a pile strut.
 
-    Point-column STM uses the column centroid. Wall/abutment STM uses the
-    closest point on the column/wall footprint, modeling an extended top
-    compression nodal zone for long wall-type supports.
+    Point-column STM uses the column centroid. Wall/abutment STM distributes
+    compression nodes along the wall length in X, but uses the wall centerline
+    in Y instead of the wall edge.
     """
     model = str(stm_model_type or "Point Column STM")
     if not model.startswith("Wall"):
         return col_x, col_y
-    x0, x1, y0, y1 = _column_footprint_bounds(col, col_x, col_y)
-    return _clamp(x, x0, x1), _clamp(y, y0, y1)
+    x0, x1, _y0, _y1 = _column_footprint_bounds(col, col_x, col_y)
+    return _clamp(x, x0, x1), col_y
 
 
 def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm,
@@ -661,8 +661,9 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         "column_position": (col_x, col_y),
         "stm_model_type": stm_model_type,
         "stm_model_note": (
-            "Wall/abutment STM uses the nearest point on the column/wall "
-            "footprint as the top compression node for each pile strut."
+            "Wall/abutment STM uses a compression node distributed along the "
+            "wall length in X, and the wall centerline in Y, at the top face "
+            "of the pile cap."
             if str(stm_model_type).startswith("Wall")
             else "Point-column STM uses the column centroid as the top node "
                  "for all pile struts."

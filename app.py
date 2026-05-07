@@ -566,8 +566,9 @@ with st.sidebar:
             ["Point Column STM", "Wall/Abutment STM"],
             key="stm_model_type",
             help=("Point Column STM uses the column centroid as the top node "
-                  "for all struts. Wall/Abutment STM uses the nearest point "
-                  "on the column/wall footprint for each pile strut."))
+                  "for all struts. Wall/Abutment STM distributes the top "
+                  "node along the wall length in X and uses the wall "
+                  "centerline in Y at the pile-cap top face."))
 
     with st.expander("Pile & Cap", expanded=True):
         st.selectbox("Pile section",

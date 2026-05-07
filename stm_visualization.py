@@ -605,6 +605,9 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
 
     # --- 5. Struts & Ties (ส่วนที่เหลือเหมือนเดิม) ---
     col_top_z = h_cap + col_height/2
+    # STM calculations use d_eff from the pile-cap top face to bottom tie steel,
+    # so draw all struts from the pile-cap top face for visual consistency.
+    strut_top_z = h_cap
     pile_top_z = (pdm if sec_p == "Circular" else pbx) / 2.0
     force_label_z = h_cap + col_height + max(100.0, 0.08 * h_cap)
     tie_label_z = force_label_z + max(45.0, 0.03 * h_cap)
@@ -660,7 +663,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
         else:
             dcr_color = STRUT_LOW
         fig.add_trace(go.Scatter3d(
-            x=[node_x, x], y=[node_y, y], z=[col_top_z, pile_top_z],
+            x=[node_x, x], y=[node_y, y], z=[strut_top_z, pile_top_z],
             mode="lines",
             line=dict(color=dcr_color, width=8),
             hovertext=("Strut: F={:.0f}kN, θ={:.1f}°".format(
@@ -676,7 +679,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
         _add_member_label(
             node_x + _label_t * (x - node_x),
             node_y + _label_t * (y - node_y),
-            col_top_z + _label_t * (pile_top_z - col_top_z),
+            strut_top_z + _label_t * (pile_top_z - strut_top_z),
             "S{}".format(idx), FORCE_LABEL_COLOR, size=12)
 
     def _tie_force_and_name(i, j, x1, y1, x2, y2):

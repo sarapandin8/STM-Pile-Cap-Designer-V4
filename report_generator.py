@@ -930,8 +930,9 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         'F_tie = horizontal component of the diagonal strut. '
         'For each pile, use dx_i and dy_i from the selected top compression '
         'node to the pile with reaction P_i. In Point Column STM the top '
-        'node is the column centroid; in Wall/Abutment STM it is the nearest '
-        'point on the column/wall footprint:')
+        'node is the column centroid; in Wall/Abutment STM the node is '
+        'distributed along the wall length in X and placed on the wall '
+        'centerline in Y at the pile-cap top face:')
     p = doc.add_paragraph()
     p.add_run('  F_tie_x,i = P_i × |dx_i| / d_eff      '
               'F_tie_y,i = P_i × |dy_i| / d_eff')
