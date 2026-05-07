@@ -248,8 +248,13 @@ def plot_elevation(coords, h_cap, D, col_size, results):
     sec_p, pbx, pby, pdm = _normalize_pile(D)
     pwid = pdm if sec_p == "Circular" else pbx
     col_x, _col_y = _col_pos(col_size)
-    x_min = min(min(xs)-pwid, col_x-pwid)
-    x_max = max(max(xs)+pwid, col_x+pwid)
+    node_xs = [
+        s.get("column_coord", (col_x, 0.0))[0]
+        for s in results.get("struts", [])
+    ]
+    view_xs = xs + node_xs + [col_x]
+    x_min = min(view_xs) - pwid
+    x_max = max(view_xs) + pwid
     cap_top = h_cap
 
     fig.add_shape(type="rect", x0=x_min-200, y0=0,
@@ -269,10 +274,19 @@ def plot_elevation(coords, h_cap, D, col_size, results):
                       x0=x-pwid/2, y0=-600, x1=x+pwid/2, y1=0,
                       fillcolor=PILE,
                       line={"color": "#1F4E89", "width": 2})
+
+    for s in results.get("struts", []):
+        x, _y = s.get("coord", (0.0, 0.0))
+        node_x, _node_y = s.get("column_coord", (col_x, 0.0))
         fig.add_trace(go.Scatter(
-            x=[col_x, x], y=[cap_top, pwid/2], mode="lines",
+            x=[node_x, x], y=[cap_top, pwid/2], mode="lines",
             line={"color": STRUT, "width": 4},
-            hoverinfo="skip", showlegend=False))
+            hoverinfo="text",
+            text=[
+                "Strut F={:.1f} kN, θ={:.1f}°".format(
+                    s.get("F_strut_kN", 0.0), s.get("theta_deg", 0.0))
+            ] * 2,
+            showlegend=False))
 
     if len(coords) >= 2:
         fig.add_trace(go.Scatter(
