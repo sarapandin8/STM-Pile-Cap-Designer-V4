@@ -209,11 +209,11 @@ def plot_plan_view(coords, D, lx, ly, col_size, results,
                               "Result", cap_polygon,
                               pile_loads=results.get("pile_loads_kN"))
     # Struts (red dashed)
-    col_x, col_y = _col_pos(col_size)
     for idx, s in enumerate(results.get("struts", [])):
         x, y = s["coord"]
+        node_x, node_y = s.get("column_coord", _col_pos(col_size))
         fig.add_trace(go.Scatter(
-            x=[col_x, x], y=[col_y, y], mode="lines",
+            x=[node_x, x], y=[node_y, y], mode="lines",
             line={"color": STRUT, "width": 3, "dash": "dash"},
             hoverinfo="text",
             text=["F={:.1f}kN θ={:.1f}°".format(
@@ -651,6 +651,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
     
     for idx, s in enumerate(struts, 1):
         x, y = s["coord"]
+        node_x, node_y = s.get("column_coord", (col_x, col_y))
         dcr_ratio = s["F_strut_kN"] / Fs_max if Fs_max > 0 else 0
         if dcr_ratio > 0.85:
             dcr_color = STRUT_HIGH
@@ -659,22 +660,22 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
         else:
             dcr_color = STRUT_LOW
         fig.add_trace(go.Scatter3d(
-            x=[col_x, x], y=[col_y, y], z=[col_top_z, pile_top_z],
+            x=[node_x, x], y=[node_y, y], z=[col_top_z, pile_top_z],
             mode="lines",
             line=dict(color=dcr_color, width=8),
             hovertext=("Strut: F={:.0f}kN, θ={:.1f}°".format(
                 s["F_strut_kN"], s["theta_deg"])),
             hoverinfo="text", showlegend=False, name="Strut"))
         _add_force_label(
-            col_x + 0.72 * (x - col_x),
-            col_y + 0.72 * (y - col_y),
+            node_x + 0.72 * (x - node_x),
+            node_y + 0.72 * (y - node_y),
             force_label_z,
             _force_text("S{}".format(idx), s["F_strut_kN"]),
             FORCE_LABEL_COLOR, size=14)
         _label_t = 0.58
         _add_member_label(
-            col_x + _label_t * (x - col_x),
-            col_y + _label_t * (y - col_y),
+            node_x + _label_t * (x - node_x),
+            node_y + _label_t * (y - node_y),
             col_top_z + _label_t * (pile_top_z - col_top_z),
             "S{}".format(idx), FORCE_LABEL_COLOR, size=12)
 

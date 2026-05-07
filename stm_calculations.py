@@ -391,6 +391,41 @@ def _design_fy(fy_mpa):
     return min(float(fy_mpa), FY_CAP_MPA)
 
 
+def _clamp(value, lower, upper):
+    return max(lower, min(upper, value))
+
+
+def _column_footprint_bounds(col, col_x, col_y):
+    if not isinstance(col, dict):
+        side = float(col)
+        return (col_x - side / 2.0, col_x + side / 2.0,
+                col_y - side / 2.0, col_y + side / 2.0)
+    sec = col.get("section", "Square")
+    bx = float(col.get("bx", 500.0))
+    by = float(col.get("by", bx))
+    diam = float(col.get("diam", bx))
+    if sec == "Circular":
+        bx = by = diam
+    elif sec == "Square":
+        by = bx
+    return (col_x - bx / 2.0, col_x + bx / 2.0,
+            col_y - by / 2.0, col_y + by / 2.0)
+
+
+def _strut_top_node_for_pile(x, y, col, col_x, col_y, stm_model_type):
+    """Return the compression node used for a pile strut.
+
+    Point-column STM uses the column centroid. Wall/abutment STM uses the
+    closest point on the column/wall footprint, modeling an extended top
+    compression nodal zone for long wall-type supports.
+    """
+    model = str(stm_model_type or "Point Column STM")
+    if not model.startswith("Wall"):
+        return col_x, col_y
+    x0, x1, y0, y1 = _column_footprint_bounds(col, col_x, col_y)
+    return _clamp(x, x0, x1), _clamp(y, y0, y1)
+
+
 def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm,
                            about_centroid=True, return_info=False,
                            load_point=(0.0, 0.0)):
@@ -469,7 +504,8 @@ def compute_pile_reactions(coords, Pu, Mux_kNm, Muy_kNm,
 def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
                cover=75.0, beta_s=0.75, W_cap_kN=0.0,
                fy_x=None, fy_y=None, x_bar_size=None, y_bar_size=None,
-               cap_lx_mm=None, cap_ly_mm=None):
+               cap_lx_mm=None, cap_ly_mm=None,
+               stm_model_type="Point Column STM"):
     """STM design per ACI 318-19 Ch. 23. No separate punching/beam shear
        check (per ACI §13.4.6.3 — covered by strut & node strength).
        W_cap_kN: self-weight of pile cap (kN), added to Pu for pile reactions.
@@ -482,6 +518,7 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     if isinstance(col, dict):
         col_x = float(col.get("x", 0.0))
         col_y = float(col.get("y", 0.0))
+        stm_model_type = col.get("stm_model_type", stm_model_type)
         if cap_lx_mm is None:
             cap_lx_mm = col.get("_cap_lx_mm")
         if cap_ly_mm is None:
@@ -510,8 +547,10 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     struts = []
     for i, (x, y) in enumerate(coords):
         Pi = max(0.0, pile_loads[i])  # uplift handled separately
-        dx = x - col_x
-        dy = y - col_y
+        node_x, node_y = _strut_top_node_for_pile(
+            x, y, col, col_x, col_y, stm_model_type)
+        dx = x - node_x
+        dy = y - node_y
         L_h = math.hypot(dx, dy)
         L_s = math.hypot(L_h, d_eff)
         th = math.degrees(math.atan2(d_eff, L_h)) if L_h > 0 else 90.0
@@ -520,16 +559,19 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         F_ty = Pi * abs(dy)/d_eff
         struts.append({
             "coord": (x, y), "P_i_kN": pile_loads[i],
-            "column_coord": (col_x, col_y),
+            "column_coord": (node_x, node_y),
+            "column_centroid": (col_x, col_y),
             "dx_from_col": dx, "dy_from_col": dy,
+            "dx_from_centroid": x - col_x,
+            "dy_from_centroid": y - col_y,
             "L_h": L_h, "L_strut": L_s, "theta_deg": th,
             "F_strut_kN": F_s,
             "F_tie_x_kN": F_tx, "F_tie_y_kN": F_ty,
         })
 
-    # PATCHED 2026-04-27: use Σ Pi·x/d instead of max per pile
-    xs = [c[0] - col_x for c in coords]
-    ys = [c[1] - col_y for c in coords]
+    # Use Σ horizontal strut components per controlling side.
+    xs = [s["dx_from_col"] for s in struts]
+    ys = [s["dy_from_col"] for s in struts]
 
     Ftx_right = sum(p * x / d_eff for p, x in zip(pile_loads, xs) if x > 0 and p > 0)
     Ftx_left = sum(p * -x / d_eff for p, x in zip(pile_loads, xs) if x < 0 and p > 0)
@@ -617,6 +659,14 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         "Pu_total_kN": Pu_total,
         "pile_loads_kN": pile_loads,
         "column_position": (col_x, col_y),
+        "stm_model_type": stm_model_type,
+        "stm_model_note": (
+            "Wall/abutment STM uses the nearest point on the column/wall "
+            "footprint as the top compression node for each pile strut."
+            if str(stm_model_type).startswith("Wall")
+            else "Point-column STM uses the column centroid as the top node "
+                 "for all pile struts."
+        ),
         "pile_group_centroid": reaction_info["centroid"],
         "reaction_load_point": reaction_info["load_point"],
         "reaction_coords": reaction_info["reaction_coords"],

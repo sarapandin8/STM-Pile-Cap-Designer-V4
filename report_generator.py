@@ -205,7 +205,13 @@ def _plot_plan(coords, D, lx, ly, cx, cy, col_size, cap_polygon, results):
             lbl += '\n{:.0f}kN'.format(pile_loads[i-1])
         ax.text(x, y, lbl, ha='center', va='center',
                 color='white', fontsize=8, fontweight='bold')
-        ax.plot([col_x, x], [col_y, y], 'r--', linewidth=1.5, alpha=0.7)
+        if i-1 < len(results.get('struts', [])):
+            node_x, node_y = results['struts'][i-1].get(
+                'column_coord', (col_x, col_y))
+        else:
+            node_x, node_y = col_x, col_y
+        ax.plot([node_x, x], [node_y, y], 'r--',
+                linewidth=1.5, alpha=0.7)
     pad = max(lx, ly)*0.15 + 300
     ax.set_xlim(min(cx-lx/2, col_x)-pad, max(cx+lx/2, col_x)+pad)
     ax.set_ylim(min(cy-ly/2, col_y)-pad, max(cy+ly/2, col_y)+pad)
@@ -666,6 +672,9 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
             inputs.get('shape_label', 'Pile cap'),
             inputs['cap_lx'], inputs['cap_ly'], inputs['h_cap'])],
         ['Column', _format_col(inputs['col_size'])],
+        ['STM model', results.get('stm_model_type',
+                                  inputs.get('stm_model_type',
+                                             'Point Column STM'))],
         ['Factored load for reactions', 'Pu_total = {:.1f} kN'.format(
             inputs.get('Pu_total_kN', results.get('Pu_total_kN', inputs['Pu'])))],
         ['Critical concrete checks',
@@ -710,6 +719,9 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         ["Pile section", _format_pile(inputs['D'])],
         ["Cap thickness h", "{} mm".format(inputs['h_cap'])],
         ["Column section", _format_col(inputs['col_size'])],
+        ["STM model", results.get('stm_model_type',
+                                  inputs.get('stm_model_type',
+                                             'Point Column STM'))],
         ["Number of piles", "{}".format(results['n_piles'])],
         ["Cap shape", inputs['shape_label']],
         ["Cap Lx x Ly", "{:.0f} x {:.0f} mm".format(
@@ -826,18 +838,26 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     doc.add_heading('3.1 Strut Forces', level=2)
     p = doc.add_paragraph()
     p.add_run("Each strut force: F_strut_i = P_i x L_strut / d_eff "
-              "(equilibrium at column-pile node)")
+              "(equilibrium at selected compression node-pile strut)")
+    if results.get('stm_model_note'):
+        p = doc.add_paragraph()
+        p.add_run('STM model note: ').bold = True
+        p.add_run(results['stm_model_note'])
     rows = []
     for i, s in enumerate(results['struts']):
+        node_x, node_y = s.get('column_coord', (0.0, 0.0))
         rows.append([
             "S{}".format(i+1),
+            "{:.0f}".format(node_x),
+            "{:.0f}".format(node_y),
             "{:.0f}".format(s['L_strut']),
             "{:.1f}".format(s['theta_deg']),
             "{:.1f}".format(s['F_strut_kN']),
             "{:.1f}".format(s['F_tie_x_kN']),
             "{:.1f}".format(s['F_tie_y_kN']),
         ])
-    _make_table(doc, ['Strut', 'L (mm)', 'θ (deg)',
+    _make_table(doc, ['Strut', 'Node X (mm)', 'Node Y (mm)',
+                      'L (mm)', 'θ (deg)',
                       'F_strut (kN)', 'F_tie_x (kN)', 'F_tie_y (kN)'], rows)
 
     # 4. Capacity Checks
@@ -908,8 +928,10 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     p.add_run('Tie force principle (STM equilibrium): ').bold = True
     p.add_run(
         'F_tie = horizontal component of the diagonal strut. '
-        'For each pile, use dx_i = x_pile - x_col and '
-        'dy_i = y_pile - y_col with reaction P_i:')
+        'For each pile, use dx_i and dy_i from the selected top compression '
+        'node to the pile with reaction P_i. In Point Column STM the top '
+        'node is the column centroid; in Wall/Abutment STM it is the nearest '
+        'point on the column/wall footprint:')
     p = doc.add_paragraph()
     p.add_run('  F_tie_x,i = P_i × |dx_i| / d_eff      '
               'F_tie_y,i = P_i × |dy_i| / d_eff')

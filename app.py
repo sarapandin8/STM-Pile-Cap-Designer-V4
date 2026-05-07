@@ -208,9 +208,12 @@ def _strut_force_rows(results):
     """Return per-strut forces for the 3D-view force table."""
     rows = []
     for i, s in enumerate(results.get("struts", []), 1):
+        node_x, node_y = s.get("column_coord", (0.0, 0.0))
         rows.append({
             "Strut": "S{}".format(i),
             "Pile": "P{}".format(i),
+            "Top node X (mm)": "{:.0f}".format(node_x),
+            "Top node Y (mm)": "{:.0f}".format(node_y),
             "P_i (kN)": "{:.1f}".format(s.get("P_i_kN", 0.0)),
             "F_strut (kN)": "{:.1f}".format(s.get("F_strut_kN", 0.0)),
             "θ (deg)": "{:.1f}".format(s.get("theta_deg", 0.0)),
@@ -284,6 +287,10 @@ def _design_recommendations(results, x_chk=None, y_chk=None,
                       "or reduce horizontal strut length by moving piles/column closer.").format(req_h)
         else:
             action = "Increase cap thickness or reduce pile-to-column horizontal distance."
+        if results.get("stm_model_type") == "Point Column STM":
+            action += (" For a long wall/abutment support, review whether "
+                       "Wall/Abutment STM is the appropriate model before "
+                       "increasing geometry solely to satisfy the angle.")
         add(
             "Strut angle",
             "Minimum strut angle = {:.1f} deg < 25 deg".format(
@@ -385,6 +392,7 @@ DEFAULTS = {
     "col_section": "Square",
     "col_bx": 500.0, "col_by": 500.0, "col_diam": 500.0,
     "col_x": 0.0, "col_y": 0.0,
+    "stm_model_type": "Point Column STM",
     "pile_section": "Circular",
     "pile_bx": 600.0, "pile_by": 600.0, "pile_diam": 600.0,
     "preset_choice": "4-Pile (Square)",
@@ -498,6 +506,13 @@ with st.sidebar:
         pc2.number_input("Column Y (mm)",
                          step=50.0, key="col_y",
                          help="Column/load point coordinate measured from layout origin.")
+        st.selectbox(
+            "STM model type",
+            ["Point Column STM", "Wall/Abutment STM"],
+            key="stm_model_type",
+            help=("Point Column STM uses the column centroid as the top node "
+                  "for all struts. Wall/Abutment STM uses the nearest point "
+                  "on the column/wall footprint for each pile strut."))
 
     with st.expander("Pile & Cap", expanded=True):
         st.selectbox("Pile section",
@@ -538,6 +553,7 @@ with st.sidebar:
         "diam": float(st.session_state.col_diam),
         "x": float(st.session_state.col_x),
         "y": float(st.session_state.col_y),
+        "stm_model_type": st.session_state.stm_model_type,
     }
     D = {
         "section": st.session_state.pile_section,
@@ -707,6 +723,18 @@ with st.sidebar:
             cap_lx, cap_ly, cap_cx, cap_cy = compute_cap_bounds_per_side(
                 coords, e_left, e_right, e_top, e_bot, D)
 
+    _col_width_x = (
+        float(col_size["diam"]) if col_size["section"] == "Circular"
+        else float(col_size["bx"]))
+    _long_wall_ratio = _col_width_x / cap_lx if cap_lx else 0.0
+    if (st.session_state.stm_model_type == "Point Column STM" and
+            col_size["section"] == "Rectangular" and
+            _long_wall_ratio >= 0.50):
+        st.warning(
+            "Long wall/abutment behavior detected: column bx is {:.0%} of "
+            "cap Lx. Point Column STM may create artificial shallow struts. "
+            "Consider using Wall/Abutment STM.".format(_long_wall_ratio))
+
     st.divider()
     st.subheader("🔩 Rebar Selection")
     bar_options = list(REBAR_DB.keys())
@@ -829,7 +857,8 @@ if calc_btn:
         _res = stm_design(coords, Pu, Mux, Muy, fc, fy, D,
                           _col_design, h_cap, cover, W_cap_kN=W_cap_kN,
                           fy_x=_fy_x, fy_y=_fy_y,
-                          x_bar_size=x_bar, y_bar_size=y_bar)
+                          x_bar_size=x_bar, y_bar_size=y_bar,
+                          stm_model_type=st.session_state.stm_model_type)
         if "error" in _res:
             st.error(_res["error"])
             st.session_state.pop("_stm_results", None)
@@ -873,6 +902,10 @@ if "_stm_results" in st.session_state:
         st.warning(
             "Column position changed after the last calculation. "
             "Click Calculate STM again to refresh reactions, struts, and ties.")
+    if results.get("stm_model_type") != st.session_state.stm_model_type:
+        st.warning(
+            "STM model type changed after the last calculation. "
+            "Click Calculate STM again to refresh strut geometry and tie demand.")
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Pu (column)",
@@ -888,6 +921,9 @@ if "_stm_results" in st.session_state:
     col_x_res, col_y_res = results.get("column_position", (0.0, 0.0))
     st.caption("Column/load point = ({:.0f}, {:.0f}) mm".format(
         col_x_res, col_y_res))
+    st.caption("STM model = {}. {}".format(
+        results.get("stm_model_type", "Point Column STM"),
+        results.get("stm_model_note", "")))
     m5, m6, m7, m8 = st.columns(4)
     m5.metric("Tie X max",
               "{:.0f} kN".format(results["F_tie_x_max_kN"]))
@@ -1429,9 +1465,12 @@ As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
         st.markdown("### Strut Forces")
         rows = []
         for i, s in enumerate(results["struts"]):
+            node_x, node_y = s.get("column_coord", (0.0, 0.0))
             rows.append({
                 "Strut": "S{}".format(i+1),
                 "X (mm)": round(s["coord"][0],1), "Y (mm)": round(s["coord"][1],1),
+                "Node X (mm)": round(node_x, 1),
+                "Node Y (mm)": round(node_y, 1),
                 "dx_col (mm)": round(s.get("dx_from_col", s["coord"][0]), 1),
                 "dy_col (mm)": round(s.get("dy_from_col", s["coord"][1]), 1),
                 "P_i (kN)": round(s["P_i_kN"], 1),
@@ -1520,6 +1559,7 @@ As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
         "anchorage_mode": anchorage_mode,
         "anchorage_bottom_z": bottom_bar_z,
         "anchorage_vertical_hook_avail": avail_vertical_hook,
+        "stm_model_type": results.get("stm_model_type", st.session_state.stm_model_type),
         "D": D, "h_cap": h_cap, "col_size": col_size,
         "coords": coords,
         "cap_lx": cap_lx, "cap_ly": cap_ly,
