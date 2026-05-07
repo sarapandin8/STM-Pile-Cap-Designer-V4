@@ -494,10 +494,43 @@ def _cylinder_mesh(cx, cy, z0, z1, r, color, opacity=0.85, lighting=None, n=24):
 
 
 
+def tie_pairs_for_3d_view(coords, tol=1.0):
+    """Return tie member pairs used by the 3D view, as zero-based indices."""
+    if len(coords) == 3:
+        return [(i, j) for i in range(len(coords))
+                for j in range(i + 1, len(coords))]
+
+    tie_pairs = []
+    seen_pairs = set()
+    row_keys = sorted({round(y / tol) for _, y in coords})
+    col_keys = sorted({round(x / tol) for x, _ in coords})
+    for key in row_keys:
+        row = sorted(
+            [(i, x, y) for i, (x, y) in enumerate(coords)
+             if round(y / tol) == key],
+            key=lambda item: item[1])
+        for a, b in zip(row, row[1:]):
+            pair = tuple(sorted((a[0], b[0])))
+            if pair not in seen_pairs:
+                seen_pairs.add(pair)
+                tie_pairs.append(pair)
+    for key in col_keys:
+        col = sorted(
+            [(i, x, y) for i, (x, y) in enumerate(coords)
+             if round(x / tol) == key],
+            key=lambda item: item[2])
+        for a, b in zip(col, col[1:]):
+            pair = tuple(sorted((a[0], b[0])))
+            if pair not in seen_pairs:
+                seen_pairs.add(pair)
+                tie_pairs.append(pair)
+    return tie_pairs
+
+
 def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
                  col_size, h_cap, cap_polygon, results,
                  pile_length=1500.0, col_height=600.0,
-                 show_force_labels=True):
+                 show_force_labels=False, show_member_labels=True):
     """3D interactive view: cap, piles, column, struts, ties."""
     fig = go.Figure()
 
@@ -585,6 +618,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
     LABEL_FONT = "Arial Black, Arial, sans-serif"
     FORCE_LABEL_COLOR = "#111827"
     TIE_LABEL_COLOR = "#064e3b"
+    PILE_LABEL_COLOR = "#0f172a"
 
     def _force_text(prefix, value):
         return "{}  {:.0f} kN".format(prefix, float(value))
@@ -600,6 +634,19 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
                 size=max(3, (size - 6) / 2.0),
                 color="rgba(255,255,255,0.96)",
                 line=dict(color=color, width=2)),
+            hoverinfo="skip", showlegend=False))
+
+    def _add_member_label(x, y, z, text, color, size=12):
+        if not show_member_labels:
+            return
+        fig.add_trace(go.Scatter3d(
+            x=[x], y=[y], z=[z], mode="markers+text", text=[text],
+            textfont=dict(color=color, size=size, family=LABEL_FONT),
+            textposition="middle center",
+            marker=dict(
+                size=4,
+                color="rgba(255,255,255,0.92)",
+                line=dict(color=color, width=1.5)),
             hoverinfo="skip", showlegend=False))
     
     for idx, s in enumerate(struts, 1):
@@ -624,6 +671,11 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
             strut_label_z,
             _force_text("S{}".format(idx), s["F_strut_kN"]),
             FORCE_LABEL_COLOR, size=14)
+        _add_member_label(
+            col_x + 0.72 * (x - col_x),
+            col_y + 0.72 * (y - col_y),
+            strut_label_z,
+            "S{}".format(idx), FORCE_LABEL_COLOR, size=12)
 
     def _tie_force_and_name(i, j, x1, y1, x2, y2):
         if i >= len(struts) or j >= len(struts):
@@ -642,37 +694,9 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
                    (sx_j**2 + sy_j**2)**0.5), "Tie R"
 
     tol = 1.0
-    is_triangular_base = len(coords) == 3
-    tie_pairs = []
-    if is_triangular_base:
-        tie_pairs = [(i, j) for i in range(len(coords))
-                     for j in range(i + 1, len(coords))]
-    else:
-        seen_pairs = set()
-        row_keys = sorted({round(y / tol) for _, y in coords})
-        col_keys = sorted({round(x / tol) for x, _ in coords})
-        for key in row_keys:
-            row = sorted(
-                [(i, x, y) for i, (x, y) in enumerate(coords)
-                 if round(y / tol) == key],
-                key=lambda item: item[1])
-            for a, b in zip(row, row[1:]):
-                pair = tuple(sorted((a[0], b[0])))
-                if pair not in seen_pairs:
-                    seen_pairs.add(pair)
-                    tie_pairs.append(pair)
-        for key in col_keys:
-            col = sorted(
-                [(i, x, y) for i, (x, y) in enumerate(coords)
-                 if round(x / tol) == key],
-                key=lambda item: item[2])
-            for a, b in zip(col, col[1:]):
-                pair = tuple(sorted((a[0], b[0])))
-                if pair not in seen_pairs:
-                    seen_pairs.add(pair)
-                    tie_pairs.append(pair)
+    tie_pairs = tie_pairs_for_3d_view(coords, tol=tol)
 
-    for i, j in tie_pairs:
+    for tie_idx, (i, j) in enumerate(tie_pairs, 1):
         (x1, y1) = coords[i]; (x2, y2) = coords[j]
         tie_force, tie_name = _tie_force_and_name(i, j, x1, y1, x2, y2)
         fig.add_trace(go.Scatter3d(
@@ -684,6 +708,10 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
                 "{} path (P{}-P{}): design F≈{:.0f} kN".format(
                     tie_name, i+1, j+1, tie_force)),
             hoverinfo="text", showlegend=False))
+        _add_member_label(
+            (x1 + x2) / 2.0, (y1 + y2) / 2.0,
+            h_cap + max(70.0, 0.05 * h_cap),
+            "T{}".format(tie_idx), TIE_LABEL_COLOR, size=11)
 
     x_min_label = cap_cx - cap_lx / 2.0
     x_max_label = cap_cx + cap_lx / 2.0
@@ -708,12 +736,11 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
             TIE_LABEL_COLOR, size=14)
 
     # Pile labels
+    pile_label_z = h_cap + max(35.0, 0.035 * h_cap)
     for idx, (px, py) in enumerate(coords, 1):
-        fig.add_trace(go.Scatter3d(
-            x=[px], y=[py], z=[-pile_length/2],
-            mode="text", text=["P{}".format(idx)],
-            textfont=dict(color="white", size=13, family=LABEL_FONT),
-            hoverinfo="skip", showlegend=False))
+        _add_member_label(
+            px, py, pile_label_z,
+            "P{}".format(idx), PILE_LABEL_COLOR, size=11)
 
     fig.update_layout(
         title="3D Interactive View — drag to rotate, scroll to zoom",

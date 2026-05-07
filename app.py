@@ -222,6 +222,27 @@ def _strut_force_rows(results):
     return rows
 
 
+def _tie_member_rows(coords):
+    """Return tie labels and pile endpoints used by the 3D view."""
+    rows = []
+    for tie_idx, (i, j) in enumerate(tie_pairs_for_3d_view(coords), 1):
+        x1, y1 = coords[i]
+        x2, y2 = coords[j]
+        if abs(y1 - y2) <= 1.0:
+            direction = "X tie path"
+        elif abs(x1 - x2) <= 1.0:
+            direction = "Y tie path"
+        else:
+            direction = "Diagonal tie path"
+        rows.append({
+            "Tie": "T{}".format(tie_idx),
+            "From": "P{}".format(i + 1),
+            "To": "P{}".format(j + 1),
+            "Path": direction,
+        })
+    return rows
+
+
 def _design_recommendations(results, x_chk=None, y_chk=None,
                             anch_x=None, anch_y=None,
                             opt_x=None, opt_y=None, cover=75.0):
@@ -349,7 +370,7 @@ _stm_visualization = importlib.reload(_stm_visualization)
 from stm_visualization import (
     plot_layout_preview, plot_plan_view,
     plot_elevation, plot_rebar_layout, plot_3d_view,
-    plot_top_rebar_layout,
+    plot_top_rebar_layout, tie_pairs_for_3d_view,
 )
 from report_generator import generate_report
 
@@ -974,7 +995,8 @@ if "_stm_results" in st.session_state:
             plot_3d_view(coords, D, cap_lx, cap_ly,
                          cap_cx, cap_cy, col_size, h_cap,
                          cap_polygon, results,
-                         show_force_labels=False),
+                         show_force_labels=False,
+                         show_member_labels=True),
             use_container_width=True)
         st.caption(
             "🖱️ **Drag** to rotate | **Scroll** to zoom | "
@@ -983,8 +1005,8 @@ if "_stm_results" in st.session_state:
         st.markdown(
             "**Color legend (Struts):** "
             "🟢 DCR < 60% | 🟠 60–85% | 🔴 > 85%  &nbsp;&nbsp; "
-            "**Ties** shown as dotted green paths. Numerical design forces "
-            "are listed in the tables below.")
+            "**Member labels:** `S#` = strut, `T#` = tie path, `P#` = pile. "
+            "Numerical design forces are listed in the tables below.")
         force_summary_rows = _design_force_summary_rows(results)
         if force_summary_rows:
             st.markdown("### Design Force Summary")
@@ -1000,6 +1022,12 @@ if "_stm_results" in st.session_state:
             st.markdown("### Strut Forces by Member")
             st.dataframe(
                 pd.DataFrame(strut_force_rows),
+                use_container_width=True, hide_index=True)
+        tie_member_rows = _tie_member_rows(coords)
+        if tie_member_rows:
+            st.markdown("### Tie Member Labels")
+            st.dataframe(
+                pd.DataFrame(tie_member_rows),
                 use_container_width=True, hide_index=True)
     
     with t3:
