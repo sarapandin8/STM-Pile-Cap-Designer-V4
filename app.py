@@ -964,7 +964,8 @@ if "_stm_results" in st.session_state:
         st.markdown(
             "**Color legend (Struts):** "
             "🟢 DCR < 60% | 🟠 60–85% | 🔴 > 85%  &nbsp;&nbsp; "
-            "**Ties** shown as dotted green lines.")
+            "**Ties** shown as dotted green paths; labels show the governing "
+            "Tx/Ty design forces used for bottom reinforcement.")
         force_summary_rows = _design_force_summary_rows(results)
         if force_summary_rows:
             st.markdown("### Design Force Summary")

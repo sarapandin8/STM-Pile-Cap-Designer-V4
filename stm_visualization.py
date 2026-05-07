@@ -573,8 +573,8 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
     # --- 5. Struts & Ties (ส่วนที่เหลือเหมือนเดิม) ---
     col_top_z = h_cap + col_height/2
     pile_top_z = (pdm if sec_p == "Circular" else pbx) / 2.0
-    force_label_z = h_cap + col_height + max(100.0, 0.08 * h_cap)
-    tie_label_z = force_label_z + max(45.0, 0.03 * h_cap)
+    strut_label_z = h_cap + max(120.0, 0.08 * h_cap)
+    tie_label_z = h_cap + max(240.0, 0.16 * h_cap)
     Fs_max = max((s["F_strut_kN"] for s in results.get("struts", [])), default=1.0)
     struts = results.get("struts", [])
     
@@ -619,8 +619,9 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
                 s["F_strut_kN"], s["theta_deg"])),
             hoverinfo="text", showlegend=False, name="Strut"))
         _add_force_label(
-            (col_x + x) / 2.0, (col_y + y) / 2.0,
-            force_label_z,
+            col_x + 0.72 * (x - col_x),
+            col_y + 0.72 * (y - col_y),
+            strut_label_z,
             _force_text("S{}".format(idx), s["F_strut_kN"]),
             FORCE_LABEL_COLOR, size=14)
 
@@ -642,25 +643,69 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
 
     tol = 1.0
     is_triangular_base = len(coords) == 3
-    for i in range(len(coords)):
-        for j in range(i+1, len(coords)):
-            (x1, y1) = coords[i]; (x2, y2) = coords[j]
-            if is_triangular_base or abs(x1 - x2) < tol or abs(y1 - y2) < tol:
-                tie_force, tie_name = _tie_force_and_name(i, j, x1, y1, x2, y2)
-                fig.add_trace(go.Scatter3d(
-                    x=[x1, x2], y=[y1, y2],
-                    z=[pile_top_z, pile_top_z],
-                    mode="lines",
-                    line=dict(color=TIE_COLOR, width=6, dash="dot"),
-                    hovertext=(
-                        "{} (P{}-P{}): F≈{:.0f} kN".format(
-                            tie_name, i+1, j+1, tie_force)),
-                    hoverinfo="text", showlegend=False))
-                _add_force_label(
-                    (x1 + x2) / 2.0, (y1 + y2) / 2.0,
-                    tie_label_z,
-                    _force_text("T{}-{}".format(i+1, j+1), tie_force),
-                    TIE_LABEL_COLOR, size=12)
+    tie_pairs = []
+    if is_triangular_base:
+        tie_pairs = [(i, j) for i in range(len(coords))
+                     for j in range(i + 1, len(coords))]
+    else:
+        seen_pairs = set()
+        row_keys = sorted({round(y / tol) for _, y in coords})
+        col_keys = sorted({round(x / tol) for x, _ in coords})
+        for key in row_keys:
+            row = sorted(
+                [(i, x, y) for i, (x, y) in enumerate(coords)
+                 if round(y / tol) == key],
+                key=lambda item: item[1])
+            for a, b in zip(row, row[1:]):
+                pair = tuple(sorted((a[0], b[0])))
+                if pair not in seen_pairs:
+                    seen_pairs.add(pair)
+                    tie_pairs.append(pair)
+        for key in col_keys:
+            col = sorted(
+                [(i, x, y) for i, (x, y) in enumerate(coords)
+                 if round(x / tol) == key],
+                key=lambda item: item[2])
+            for a, b in zip(col, col[1:]):
+                pair = tuple(sorted((a[0], b[0])))
+                if pair not in seen_pairs:
+                    seen_pairs.add(pair)
+                    tie_pairs.append(pair)
+
+    for i, j in tie_pairs:
+        (x1, y1) = coords[i]; (x2, y2) = coords[j]
+        tie_force, tie_name = _tie_force_and_name(i, j, x1, y1, x2, y2)
+        fig.add_trace(go.Scatter3d(
+            x=[x1, x2], y=[y1, y2],
+            z=[pile_top_z, pile_top_z],
+            mode="lines",
+            line=dict(color=TIE_COLOR, width=6, dash="dot"),
+            hovertext=(
+                "{} path (P{}-P{}): design F≈{:.0f} kN".format(
+                    tie_name, i+1, j+1, tie_force)),
+            hoverinfo="text", showlegend=False))
+
+    x_min_label = cap_cx - cap_lx / 2.0
+    x_max_label = cap_cx + cap_lx / 2.0
+    y_min_label = cap_cy - cap_ly / 2.0
+    y_max_label = cap_cy + cap_ly / 2.0
+    label_offset = max(250.0, 0.05 * max(cap_lx, cap_ly))
+    if results.get("is_3pile_resultant"):
+        _add_force_label(
+            cap_cx, y_max_label + label_offset, tie_label_z,
+            _force_text("T design", results.get("F_tie_res_kN", 0.0)),
+            TIE_LABEL_COLOR, size=14)
+    else:
+        _add_force_label(
+            cap_cx, y_min_label - label_offset, tie_label_z,
+            _force_text("Tx design", results.get("F_tie_x_design_kN",
+                                                  results.get("F_tie_x_max_kN", 0.0))),
+            TIE_LABEL_COLOR, size=14)
+        _add_force_label(
+            x_max_label + label_offset, cap_cy, tie_label_z,
+            _force_text("Ty design", results.get("F_tie_y_design_kN",
+                                                  results.get("F_tie_y_max_kN", 0.0))),
+            TIE_LABEL_COLOR, size=14)
 
     # Pile labels
     for idx, (px, py) in enumerate(coords, 1):
