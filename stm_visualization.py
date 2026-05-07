@@ -606,8 +606,8 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
     # --- 5. Struts & Ties (ส่วนที่เหลือเหมือนเดิม) ---
     col_top_z = h_cap + col_height/2
     pile_top_z = (pdm if sec_p == "Circular" else pbx) / 2.0
-    strut_label_z = h_cap + max(120.0, 0.08 * h_cap)
-    tie_label_z = h_cap + max(240.0, 0.16 * h_cap)
+    force_label_z = h_cap + col_height + max(100.0, 0.08 * h_cap)
+    tie_label_z = force_label_z + max(45.0, 0.03 * h_cap)
     Fs_max = max((s["F_strut_kN"] for s in results.get("struts", [])), default=1.0)
     struts = results.get("struts", [])
     
@@ -668,13 +668,14 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
         _add_force_label(
             col_x + 0.72 * (x - col_x),
             col_y + 0.72 * (y - col_y),
-            strut_label_z,
+            force_label_z,
             _force_text("S{}".format(idx), s["F_strut_kN"]),
             FORCE_LABEL_COLOR, size=14)
+        _label_t = 0.58
         _add_member_label(
-            col_x + 0.72 * (x - col_x),
-            col_y + 0.72 * (y - col_y),
-            strut_label_z,
+            col_x + _label_t * (x - col_x),
+            col_y + _label_t * (y - col_y),
+            col_top_z + _label_t * (pile_top_z - col_top_z),
             "S{}".format(idx), FORCE_LABEL_COLOR, size=12)
 
     def _tie_force_and_name(i, j, x1, y1, x2, y2):
@@ -710,7 +711,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
             hoverinfo="text", showlegend=False))
         _add_member_label(
             (x1 + x2) / 2.0, (y1 + y2) / 2.0,
-            h_cap + max(70.0, 0.05 * h_cap),
+            pile_top_z,
             "T{}".format(tie_idx), TIE_LABEL_COLOR, size=11)
 
     x_min_label = cap_cx - cap_lx / 2.0
@@ -736,7 +737,7 @@ def plot_3d_view(coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
             TIE_LABEL_COLOR, size=14)
 
     # Pile labels
-    pile_label_z = h_cap + max(35.0, 0.035 * h_cap)
+    pile_label_z = pile_top_z
     for idx, (px, py) in enumerate(coords, 1):
         _add_member_label(
             px, py, pile_label_z,
