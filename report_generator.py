@@ -693,7 +693,8 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
              y_chk['As_provided'], y_chk['As_required'],
              results.get('As_y_governs', 'governing'))],
         ['Top reinforcement basis',
-         '(0.0018Ag)/2 each direction' if top_rebar else 'Not evaluated'],
+         'rho_top = rho_min/2 = {:.5f}  each direction'.format(
+             top_rebar.get('rho_top', 0.0009)) if top_rebar else 'Not evaluated'],
         ['Anchorage',
          _fmt_ok(anch_ok) if (anch_x is not None or anch_y is not None)
          else 'Not evaluated'],
@@ -927,7 +928,8 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     p.add_run('Minimum flexural reinforcement check: ').bold = True
     p.add_run(
         'Bottom-face reinforcement in each direction is also checked against '
-        'As_min = 0.0018Ag. Therefore As_req = max(As_STM, 0.0018Ag).')
+        'As_min = ρ_min × Ag, where ρ_min = max(0.0018 × 420/fy, 0.0014) '
+        'per ACI 318-19 §9.6.1.2. Therefore As_req = max(As_STM, ρ_min·Ag).')
     p = doc.add_paragraph()
     p.add_run('Tie force principle (STM equilibrium): ').bold = True
     p.add_run(
@@ -1187,18 +1189,26 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         tr = _ensure_top_schedule_for_report(top_rebar, inputs)
         p = doc.add_paragraph()
         p.add_run(
-            "The top face of the pile cap is not part of the STM load path "
-            "and is designed here using one-half of the gross-area minimum "
-            "reinforcement: As_top = (0.0018Ag)/2 in each direction."
+            "The top face of the pile cap is not part of the STM load path. "
+            "Thick pile caps do not develop top-face tension under gravity loading, "
+            "so using the full rho_min would over-reinforce the top face. "
+            "The top-face steel is therefore designed using rho_top = rho_min / 2 "
+            "in each direction, where rho_min = max(0.0018 x 420/fy, 0.0014) "
+            "per ACI 318-19 Section 9.6.1.2."
         )
 
-        doc.add_heading('6.1 Top-Face Minimum — (0.0018Ag)/2',
+        doc.add_heading('6.1 Top-Face Minimum — rho_top = rho_min/2',
                         level=2)
         p = doc.add_paragraph()
-        p.add_run("ρ_top = 0.0018 / 2 = {:.4f}".format(
-            tr.get("rho_top", 0.0009))).bold = True
-        _make_table(doc, ['Direction', 'b (mm)', 'Ag = b×h (mm²)',
-                          '0.0018Ag (mm²)', 'As_top = (0.0018Ag)/2 (mm²)'], [
+        _rho_full = tr.get("rho_full_min", 0.0018)
+        _rho_top  = tr.get("rho_top", _rho_full / 2.0)
+        _fy_top_d = tr.get("fy_design_mpa", 390.0)
+        p.add_run(
+            "rho_min = max(0.0018 x 420 / {:.0f}, 0.0014) = {:.5f}   "
+            "rho_top = rho_min / 2 = {:.5f}".format(
+                _fy_top_d, _rho_full, _rho_top)).bold = True
+        _make_table(doc, ['Direction', 'b (mm)', 'Ag = b x h (mm2)',
+                          'rho_min x Ag (mm2)', 'As_top = rho_top x Ag (mm2)'], [
             ['X', '{:.0f}'.format(inputs['cap_ly']),
              '{:.0f}'.format(tr.get('Ag_x_mm2', inputs['cap_ly'] * inputs['h_cap'])),
              '{:.0f}'.format(tr.get('As_full_min_x_mm2', tr.get('As_ts_x_mm2', 0))),

@@ -665,8 +665,9 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     As_y_min = rho_bottom_min * Ag_y
     As_x = max(As_x_stm, As_x_min)
     As_y = max(As_y_stm, As_y_min)
-    As_x_governs = "STM tie" if As_x_stm >= As_x_min else "0.0018Ag minimum"
-    As_y_governs = "STM tie" if As_y_stm >= As_y_min else "0.0018Ag minimum"
+    _rho_label = "ρ_min={:.4f}·Ag".format(rho_bottom_min)
+    As_x_governs = "STM tie" if As_x_stm >= As_x_min else _rho_label
+    As_y_governs = "STM tie" if As_y_stm >= As_y_min else _rho_label
 
     min_a = min(s["theta_deg"] for s in struts)
     a_ok = min_a >= 25.0
@@ -747,16 +748,24 @@ def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
                               cover_mm=75.0, top_bar_size="DB20"):
     """Minimum top-face reinforcement for an STM pile cap.
 
-    Bottom reinforcement is checked against 0.0018Ag in each direction. The
-    top face uses half of that gross-area minimum: As_top = (0.0018Ag)/2.
+    Bottom reinforcement is checked against ρ_min × Ag per ACI §9.6.1.2
+    where ρ_min = max(0.0018 × 420/fy, 0.0014).
+    The top face uses ρ_top = ρ_min/2, because thick pile caps do not
+    develop top-face tension under gravity loading — using the full ρ_min
+    would excessively over-reinforce the top face.
     """
     # ── fy for design: bar-specific then ACI cap ──────────────────
     fy_bar  = REBAR_FY.get(top_bar_size, fy_mpa)   # from REBAR_FY dict
     fy_d    = min(fy_bar, FY_CAP_MPA)               # ACI §20.2.2.4 cap
     db_top  = REBAR_DIAM_MM.get(top_bar_size, 20.0) # nominal diameter
 
-    # ── User design basis: top mat = 1/2 of 0.0018Ag ────────────
-    rho_full_min = 0.0018
+    # ── Design basis: ρ_min per ACI §9.6.1.2, top mat = ρ_min/2 ────
+    # Thick pile caps do not develop top-face tension under gravity load;
+    # using full ρ_min would over-reinforce.  Half of ρ_min is used as a
+    # practical minimum for crack control on the top face.
+    # ρ_min = max(0.0018 × 420/fy, 0.0014)   [ACI §9.6.1.2]
+    # ρ_top = ρ_min / 2
+    rho_full_min = max(0.0018 * 420.0 / fy_d, 0.0014)
     rho_top = rho_full_min / 2.0
     Ag_x = ly_mm * h_cap_mm
     Ag_y = lx_mm * h_cap_mm
@@ -778,11 +787,14 @@ def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
     As_cc_y = rho_cc * lx_mm * h_cap_mm
 
     # ── Governing As ────────────────────────────────────────────
-    top_basis = "(0.0018Ag)/2 top-face minimum  (ρ = {:.4f})".format(rho_top)
+    top_basis = ("ρ_min/2 = {:.4f}  [ρ_min = max(0.0018×420/fy, 0.0014) = {:.4f}]"
+                 .format(rho_top, rho_full_min))
     top_note = (
-        "Top-face As is calculated as one-half of the 0.0018Ag minimum in "
-        "each direction. Bottom-face reinforcement is checked separately "
-        "against the full 0.0018Ag minimum and STM tie demand."
+        "Top-face As = ρ_min/2 × Ag  (fy-dependent per ACI §9.6.1.2). "
+        "Thick pile caps do not develop top tension under gravity load; "
+        "full ρ_min is not required and would over-reinforce the top face. "
+        "Bottom-face reinforcement is checked separately against full ρ_min "
+        "and STM tie demand."
     )
 
     # ── (D) Spacing limits ────────────────────────────────────────
@@ -859,7 +871,7 @@ def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
         "As_top_y_mm2": As_top_y,
         "governs_x": top_basis,
         "governs_y": top_basis,
-        "top_design_basis": "HALF_0018AG",
+        "top_design_basis": "HALF_RHO_MIN_FY_DEPENDENT",
         "top_design_note": top_note,
         "flex_reference_note": (
             "Reference only unless a separate flexural check shows top-face "
@@ -895,7 +907,7 @@ def compute_top_reinforcement(lx_mm, ly_mm, h_cap_mm, fy_mpa, fc_mpa,
 
 
 def check_rebar(bar_size, n_bars, As_req, fy_mpa=None,
-                force_req_kN=None, phi=PHI_STM):
+                force_req_kN=None, phi=PHI_STM, rho_label=None):
     A_per = REBAR_DB[bar_size]
     As_prov = A_per * n_bars
     ratio = (As_prov/As_req) if As_req > 0 else float("inf")
@@ -934,11 +946,12 @@ BAR_WEIGHT_PER_M = {
 
 def optimize_rebar(As_req, bar_length_mm, sizes=None,
                    force_req_kN=None, phi=PHI_STM,
-                   min_As_req=None):
+                   min_As_req=None, rho_label=None):
     """Pick min-weight (bar_size, n) combo satisfying As/force demand.
        Returns (best_dict, all_options_list)."""
     if sizes is None:
         sizes = list(REBAR_DB.keys())
+    _rho_label = rho_label if rho_label else "ρ_min·Ag"
     options = []
     best = None
     min_area_req = As_req if min_As_req is None else min_As_req
@@ -958,7 +971,7 @@ def optimize_rebar(As_req, bar_length_mm, sizes=None,
         force_capacity = phi * n * A * fy_design / 1000.0
         force_ok = True if force_req_kN is None else force_capacity >= force_req_kN
         area_ok = (n * A) >= min_area_req
-        governs = "force" if As_force_req > min_area_req else "0.0018Ag minimum"
+        governs = "force" if As_force_req > min_area_req else _rho_label
         opt = {
             "bar_size": sz, "n_bars": n,
             "As_per_bar": A, "As_provided": n * A,

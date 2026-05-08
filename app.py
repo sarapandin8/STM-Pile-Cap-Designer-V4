@@ -1050,14 +1050,17 @@ if "_stm_results" in st.session_state:
               "{:.1f}°".format(results["min_strut_angle_deg"]),
               help="ACI requires ≥ 25°")
 
+    _rho_lbl = "ρ_min={:.4f}·Ag".format(results.get("rho_bottom_min", 0.0018))
     x_chk = check_rebar(x_bar, int(x_n),
                         results["As_x_required_mm2"],
                         fy_mpa=results.get("fy_x_design_mpa", fy),
-                        force_req_kN=results.get("F_tie_x_design_kN"))
+                        force_req_kN=results.get("F_tie_x_design_kN"),
+                        rho_label=_rho_lbl)
     y_chk = check_rebar(y_bar, int(y_n),
                         results["As_y_required_mm2"],
                         fy_mpa=results.get("fy_y_design_mpa", fy),
-                        force_req_kN=results.get("F_tie_y_design_kN"))
+                        force_req_kN=results.get("F_tie_y_design_kN"),
+                        rho_label=_rho_lbl)
 
     # Auto-optimize
     opt_x, opts_x = optimize_rebar(
@@ -1255,6 +1258,18 @@ if "_stm_results" in st.session_state:
         ])
         st.dataframe(req_df, use_container_width=True,
                      hide_index=True)
+
+        # ── ρ_min note ──────────────────────────────────────────────
+        _rho_min_val = results.get("rho_bottom_min", 0.0018)
+        _fy_min_val  = min(results.get("fy_x_design_mpa", fy),
+                           results.get("fy_y_design_mpa", fy))
+        st.caption(
+            "📐 **เหล็กล่าง:** ρ_min = max(0.0018 × 420 / fy, 0.0014) "
+            "= max(0.0018 × 420 / {:.0f}, 0.0014) = **{:.5f}** "
+            " [ACI 318-19 §9.6.1.2]  "
+            "→  As_min = ρ_min × Ag = {:.5f} × Ag".format(
+                _fy_min_val, _rho_min_val, _rho_min_val))
+
         if results.get("is_3pile_resultant"):
             st.info("ฐาน 3 เข็ม: แรงออกแบบใช้ F_res = √(Ftx²+Fty²) = {:.1f} kN; As แต่ละทิศคำนวณด้วย fy ของเหล็กที่เลือกในทิศนั้น".format(results["F_tie_res_kN"]))
 
@@ -1382,8 +1397,10 @@ if "_stm_results" in st.session_state:
         st.markdown("## 🪟 Top-Face Minimum Reinforcement")
         st.markdown(
             "เหล็กผิวบนของ pile cap ไม่ได้รับแรงดึงจาก STM โดยตรง "
-            "ดังนั้น `As_top` ใช้ค่า **(0.0018Ag)/2** ในแต่ละทิศทาง "
-            "โดย Ag คือพื้นที่หน้าตัด gross strip ของทิศนั้น")
+            "และ pile cap ที่หนามากมักไม่เกิด top-face tension จากน้ำหนักแนวดิ่ง "
+            "ดังนั้นจึงไม่ควรใช้ ρ_min เต็มค่า (จะได้เหล็กมากเกินจำเป็น) "
+            "→ ใช้ **ρ_top = ρ_min / 2** ในแต่ละทิศทาง  "
+            "โดย ρ_min = max(0.0018 × 420/fy, 0.0014) [ACI §9.6.1.2]")
 
         # ── Bar selector ─────────────────────────────────────
         st.markdown("### เลือกขนาดเหล็กผิวบน")
@@ -1459,13 +1476,13 @@ As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
              "As_X req (mm²)": "{:.0f}".format(tr["Ag_x_mm2"]),
              "As_Y req (mm²)": "{:.0f}".format(tr["Ag_y_mm2"]),
              "ใช้เป็น As_top": "ฐานคำนวณ"},
-            {"Check": "Full minimum: 0.0018Ag",
-             "ρ used": "{:.4f}".format(tr["rho_full_min"]),
+            {"Check": "ρ_min × Ag  (full bottom min)",
+             "ρ used": "{:.5f}".format(tr["rho_full_min"]),
              "As_X req (mm²)": "{:.0f}".format(tr["As_full_min_x_mm2"]),
              "As_Y req (mm²)": "{:.0f}".format(tr["As_full_min_y_mm2"]),
              "ใช้เป็น As_top": "หาร 2"},
-            {"Check": "Top minimum: (0.0018Ag)/2",
-             "ρ used": "{:.4f}".format(tr["rho_top"]),
+            {"Check": "ρ_top = ρ_min/2  (top face)",
+             "ρ used": "{:.5f}".format(tr["rho_top"]),
              "As_X req (mm²)": "{:.0f}".format(tr["As_top_x_mm2"]),
              "As_Y req (mm²)": "{:.0f}".format(tr["As_top_y_mm2"]),
              "ใช้เป็น As_top": "✅ Yes"},
@@ -1476,6 +1493,18 @@ As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
              "ใช้เป็น As_top": "Detailing"},
         ])
         st.dataframe(res_df, use_container_width=True, hide_index=True)
+
+        # ── ρ_min note ───────────────────────────────────────────────
+        _fy_top_d = tr.get("fy_design_mpa", 390.0)
+        st.caption(
+            "📐 **เหล็กบน:** ρ_min = max(0.0018 × 420 / fy, 0.0014) "
+            "= max(0.0018 × 420 / {:.0f}, 0.0014) = **{:.5f}**"
+            "  →  ρ_top = ρ_min / 2 = **{:.5f}**"
+            "  [ACI 318-19 §9.6.1.2]  "
+            "*(pile cap หนา ไม่เกิด top tension → ใช้ครึ่งค่า)*".format(
+                _fy_top_d,
+                tr["rho_full_min"],
+                tr["rho_top"]))
 
         c1, c2 = st.columns(2)
         c1.success(
