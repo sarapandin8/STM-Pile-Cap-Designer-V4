@@ -1424,10 +1424,15 @@ if "_stm_results" in st.session_state:
                     "ACI §24.3.2   → spacing limit เพิ่มเติม".format(
                         _chosen_bar, _fy_chosen, FY_CAP_MPA))
             else:
+                _fy_d_preview = min(_fy_chosen, FY_CAP_MPA)
+                _rho_min_preview = max(0.0018 * 420.0 / _fy_d_preview, 0.0014)
+                _rho_top_preview = _rho_min_preview / 2.0
                 st.info(
                     "**{} : fy = {:.0f} MPa ≤ 420 MPa**  \n"
-                    "ρ_top = 0.0009  |  ไม่มี spacing penalty".format(
-                        _chosen_bar, _fy_chosen))
+                    "ρ_min = max(0.0018×420/{:.0f}, 0.0014) = {:.5f}  \n"
+                    "ρ_top = ρ_min / 2 = {:.5f}  |  ไม่มี spacing penalty".format(
+                        _chosen_bar, _fy_chosen,
+                        _fy_d_preview, _rho_min_preview, _rho_top_preview))
 
         # ── Recompute with selected bar ───────────────────────
         tr = compute_top_reinforcement(
@@ -1440,12 +1445,17 @@ if "_stm_results" in st.session_state:
         # ── Code Reference Expander ──────────────────────────
         with st.expander("📖 Code Basis (ACI 318-19) — คลิกเพื่อดูรายละเอียด"):
             st.markdown("""
-**Check A — Temperature & Shrinkage  §24.4.3.2 Table 24.4.3.2**
+**Check A — Minimum Reinforcement  §9.6.1.2**
 
-Ag_x = ly × h_cap
-Ag_y = lx × h_cap
-As_min,bottom = 0.0018 × Ag
-As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
+Ag_x = ly × h_cap  |  Ag_y = lx × h_cap
+
+ρ_min = max(0.0018 × 420 / fy, 0.0014)   [ACI §9.6.1.2, fy-dependent]
+
+As_min,bottom = ρ_min × Ag
+
+**Top-face (pile cap หนา — ไม่เกิด top tension):**
+
+ρ_top = ρ_min / 2   →   As_top = ρ_top × Ag
 
 **Spacing Limits**
 
