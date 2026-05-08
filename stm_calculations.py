@@ -537,10 +537,15 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     has_uplift = P_min < -1e-3
 
     # d_eff = h - cover - db/2  (ACI 318-19 §23.2)
-    # Bar diameter assumed DB25 (25 mm) for initial design iteration.
-    # This is the distance from compression face to centroid of tie steel.
-    DB_ASSUMED_MM = 25.0
-    d_eff = h_cap - cover - DB_ASSUMED_MM / 2.0
+    # Use the governing (largest) bar diameter from user bar-size selections.
+    # When the bar sizes are not yet known, fall back to DB25 (25 mm) as the
+    # initial design assumption.  The governing bar is the one that sits lowest
+    # in the mat (largest db reduces d_eff the most).
+    # FIX 2026-05-08: replaced hard-coded DB_ASSUMED_MM=25 with actual size.
+    _db_x = REBAR_DIAM_MM.get(x_bar_size, 25.0) if x_bar_size else 25.0
+    _db_y = REBAR_DIAM_MM.get(y_bar_size, 25.0) if y_bar_size else 25.0
+    DB_DESIGN_MM = max(_db_x, _db_y)   # largest bar governs d_eff
+    d_eff = h_cap - cover - DB_DESIGN_MM / 2.0
     if d_eff <= 0:
         return {"error": "Effective depth <= 0. Increase cap thickness."}
 
@@ -595,9 +600,19 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     phi_Fns = PHI_STM * Fns
     strut_dcr = Fs_max/phi_Fns if phi_Fns > 0 else float("inf")
 
-    # Node type at pile: CTT when ties exist in both X and Y (n>=4 pile caps)
-    # ACI 318-19 Table 23.9.2a: CCT βn=0.80, CTT βn=0.60
-    bn_pile = 0.60 if n >= 4 else 0.80
+    # Node type at pile per ACI 318-19 Table 23.9.2a:
+    #   CCC βn=1.00  — compression only (column top node)
+    #   CCT βn=0.80  — one tie direction  (2-pile linear cap)
+    #   CTT βn=0.60  — two or more tie directions
+    #
+    # FIX 2026-05-08: 3-pile triangular cap corrected to CTT (βn=0.60).
+    # Each pile node anchors ties to the OTHER TWO piles (two tie directions),
+    # so it is CTT regardless of n<4.  Only a 2-pile linear cap has a single
+    # tie direction (CCT, βn=0.80).
+    if n <= 2:
+        bn_pile = 0.80   # 2-pile: one tie direction → CCT
+    else:
+        bn_pile = 0.60   # 3-pile triangular and all larger caps → CTT
     Pn_pile = fce_node(fc, bn_pile) * A_node_pile_eff / 1000.0
     phi_Pn_pile = PHI_BEARING * Pn_pile
     bear_dcr = P_max/phi_Pn_pile if phi_Pn_pile > 0 else float("inf")
@@ -639,7 +654,11 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         if cap_ly_mm is None:
             cap_ly_mm = max(0.0, ymax - ymin)
 
-    rho_bottom_min = 0.0018
+    # ACI 318-19 §9.6.1.2: As,min = max(0.0018×420/fy, 0.0014) × Ag
+    # FIX 2026-05-08: rho_bottom_min now depends on the actual design fy.
+    # Using the smaller of the two tie fy values to be conservative (higher ρ).
+    fy_min_design = min(fy_x_design, fy_y_design)
+    rho_bottom_min = max(0.0018 * 420.0 / fy_min_design, 0.0014)
     Ag_x = float(cap_ly_mm) * h_cap
     Ag_y = float(cap_lx_mm) * h_cap
     As_x_min = rho_bottom_min * Ag_x
@@ -679,7 +698,11 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         "reaction_warnings": reaction_info["warnings"],
         "P_max_kN": P_max, "P_min_kN": P_min,
         "has_uplift": has_uplift,
-        "d_effective_mm": d_eff, "struts": struts,
+        "d_effective_mm": d_eff,
+        "governing_db_mm": DB_DESIGN_MM,
+        "governing_bar_size": (x_bar_size if _db_x >= _db_y else y_bar_size) or "DB25",
+        "rho_bottom_min": rho_bottom_min,
+        "struts": struts,
         "F_tie_x_max_kN": Ftx_max, "F_tie_y_max_kN": Fty_max,
         "F_tie_max_kN": max(Ftx_max, Fty_max),
         "F_tie_res_kN": F_res,
@@ -966,14 +989,24 @@ def optimize_rebar(As_req, bar_length_mm, sizes=None,
 def development_length(bar_size_str, fc_mpa, fy_mpa,
                        hooked=False, cb_Ktr_over_db=1.5, lambda_c=1.0):
     """Compute required development length per ACI 318-19 §25.4.
-       hooked=False -> ld (straight, §25.4.2.3)
-       hooked=True  -> ldh (90°/180° hook, §25.4.3.1)
-       Result in mm."""
+       hooked=False -> ld  (straight bar, §25.4.2.3)
+       hooked=True  -> ldh (90°/180° standard hook, §25.4.3.1)
+       All modification factors ψ taken as 1.0 (conservative baseline).
+       Result in mm.
+
+    FIX 2026-05-08: hooked formula corrected.
+      Previous (wrong): ldh = fy/(23·λ·√f'c) · db^1.5   ← not an ACI equation
+      Correct ACI 318-19 §25.4.3.1a (SI):
+          ldh = (0.24 · ψe · ψr · ψo · ψc · fy · db) / (λ · √f'c)
+      With all ψ = 1.0:
+          ldh = 0.24 · fy · db / (λ · √f'c)
+      Minimum: max(8·db, 150 mm)  [ACI §25.4.3.1b]
+    """
     db = float(bar_size_str.replace("DB", ""))
     sqfc = math.sqrt(fc_mpa)
     if hooked:
-        # Eq. 25.4.3.1a, simplified ψe=ψr=ψo=ψc=1.0
-        ldh = (fy_mpa / (23.0 * lambda_c * sqfc)) * (db ** 1.5)
+        # ACI 318-19 Eq. 25.4.3.1a (SI), all ψ-factors = 1.0
+        ldh = (0.24 * fy_mpa * db) / (lambda_c * sqfc)
         return max(ldh, 8.0 * db, 150.0)
     else:
         psi_s = 0.8 if db <= 20.0 else 1.0  # §25.4.2.5

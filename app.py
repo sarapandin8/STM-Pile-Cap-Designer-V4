@@ -1189,7 +1189,9 @@ if "_stm_results" in st.session_state:
         st.markdown("### Required Reinforcement")
         st.caption(
             "Bottom-face steel is checked per direction against both STM tie "
-            "demand and minimum flexural reinforcement: As_req = max(As_STM, 0.0018Ag).")
+            "demand and minimum flexural reinforcement: "
+            "As_req = max(As_STM, ρ_min·Ag)  "
+            "โดย ρ_min = max(0.0018×420/fy, 0.0014)  [ACI §9.6.1.2]")
         if results.get("is_3pile_resultant"):
             tie_x_display = tie_y_display = results["F_tie_res_kN"]
             note = " (Resultant)"
@@ -1207,7 +1209,7 @@ if "_stm_results" in st.session_state:
                  "{:.1f}".format(tie_x_display),
              "As STM (mm²)":
                  "{:.0f}".format(results.get("As_x_stm_required_mm2", 0.0)),
-             "As min 0.0018Ag (mm²)":
+             "As min ρ_min·Ag (mm²)":
                  "{:.0f}".format(results.get("As_x_min_required_mm2", 0.0)),
              "As req = max (mm²)":
                  "{:.0f}".format(results["As_x_required_mm2"]),
@@ -1231,7 +1233,7 @@ if "_stm_results" in st.session_state:
                  "{:.1f}".format(tie_y_display),
              "As STM (mm²)":
                  "{:.0f}".format(results.get("As_y_stm_required_mm2", 0.0)),
-             "As min 0.0018Ag (mm²)":
+             "As min ρ_min·Ag (mm²)":
                  "{:.0f}".format(results.get("As_y_min_required_mm2", 0.0)),
              "As req = max (mm²)":
                  "{:.0f}".format(results["As_y_required_mm2"]),
@@ -1318,8 +1320,8 @@ if "_stm_results" in st.session_state:
         _formula_box(
             "ld  ≈ (fy·ψs / 1.1·λ·√f'c · (cb+Ktr)/db) · db   "
             "(ACI 25.4.2.3)\n"
-            "ldh ≈ (fy / 23·λ·√f'c) · db^1.5                "
-            "(ACI 25.4.3.1)")
+            "ldh ≈ (0.24·fy·db) / (λ·√f'c)                  "
+            "(ACI 25.4.3.1a, SI)")
 
         anch_df = pd.DataFrame([
             {"Direction": "X", "Bar": anch_x["bar_size"],
@@ -1577,7 +1579,8 @@ As_top = (0.0018 × Ag) / 2 = 0.0009 × Ag
 | **fy ใช้ออกแบบ** | ≤DB28 → 390 MPa, DB32 → 490 MPa, cap 550 MPa | §20.2.2.4 |
 """)
         st.info(
-            "💡 **หมายเหตุ:** เหล็กล่างยังต้องตรวจเต็มค่า 0.0018Ag แยกจาก STM tie demand "
+            "💡 **หมายเหตุ:** เหล็กล่างยังต้องตรวจเต็มค่า ρ_min·Ag แยกจาก STM tie demand "
+            "โดย ρ_min = max(0.0018×420/fy, 0.0014) [ACI §9.6.1.2] "
             "ส่วนเหล็กบนในหน้านี้ใช้ครึ่งหนึ่งของ minimum gross-area ตามที่กำหนด")
 
     with t5:

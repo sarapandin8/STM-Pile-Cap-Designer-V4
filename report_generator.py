@@ -822,10 +822,12 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         _gov_max = _pbx2
     else:
         _gov_max = max(_pbx2, _pby2)
-    p.add_run("d_eff = h - cover - db/2 = {} - {} - 12.5 = {:.0f} mm "
-              "(ACI 318-19 §23.2, db assumed = DB25)".format(
+    p.add_run("d_eff = h - cover - db/2 = {} - {} - {:.1f} = {:.0f} mm "
+              "(ACI 318-19 §23.2, governing bar = {})".format(
                   inputs['h_cap'], inputs['cover'],
-                  results['d_effective_mm']))
+                  results.get('governing_db_mm', 12.5),
+                  results['d_effective_mm'],
+                  results.get('governing_bar_size', 'DB25')))
 
     img2 = _plot_elev(inputs['coords'], inputs['h_cap'],
                       inputs['D'], inputs['col_size'], results)
@@ -876,10 +878,12 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         rr.bold = True
         p.add_run(results['capacity_model_note'])
 
-    # Node type: CTT (βn=0.60) for n>=4 piles; CCT (βn=0.80) for n<4 piles
+    # Node type: CTT (βn=0.60) for n>=3 piles; CCT (βn=0.80) for n<=2 piles
+    # FIX 2026-05-08: 3-pile cap corrected to CTT — each pile node anchors
+    # ties in TWO directions (to the other two piles), matching ACI Table 23.9.2a.
     _n_pile = results.get('n_piles', 4)
-    _bn_pile = results.get('bn_pile', 0.60 if _n_pile >= 4 else 0.80)
-    _node_type = "CTT" if _n_pile >= 4 else "CCT"
+    _bn_pile = results.get('bn_pile', 0.60 if _n_pile >= 3 else 0.80)
+    _node_type = "CTT" if _n_pile >= 3 else "CCT"
     _node_label = "{}, βn={:.2f}".format(_node_type, _bn_pile)
 
     rows = [
@@ -1002,12 +1006,15 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
     As_y_stm = results.get(
         'As_y_stm_required_mm2',
         fty_design * 1000.0 / (0.75 * fyy) if fyy > 0 else 0.0)
+    # FIX 2026-05-08: rho_min is now fy-dependent per ACI §9.6.1.2.
+    # Read from results dict first; fall back to formula only if absent.
+    _rho_min = results.get('rho_bottom_min', max(0.0018 * 420.0 / max(fyx, fyx, 1.0), 0.0014))
     As_x_min = results.get(
         'As_x_min_required_mm2',
-        0.0018 * inputs['cap_ly'] * inputs['h_cap'])
+        _rho_min * inputs['cap_ly'] * inputs['h_cap'])
     As_y_min = results.get(
         'As_y_min_required_mm2',
-        0.0018 * inputs['cap_lx'] * inputs['h_cap'])
+        _rho_min * inputs['cap_lx'] * inputs['h_cap'])
     if is_3p:
         p = doc.add_paragraph()
         p.add_run('3-Pile resultant tie: ').bold = True
@@ -1041,7 +1048,7 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
                 fty_design, fty_design, fyy, As_y_stm))
 
     _make_table(doc,
-        ['Direction', 'As_STM (mm²)', 'As_min = 0.0018Ag (mm²)',
+        ['Direction', 'As_STM (mm²)', 'As_min = ρ_min·Ag (mm²)',
          'As_req = max (mm²)', 'Governing'],
         [['X',
           '{:.0f}'.format(As_x_stm),
@@ -1151,8 +1158,8 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         p.add_run("• ld (straight)  ≈ (fy·ψs / 1.1λ√f'c·(cb+Ktr)/db)·db   "
                   "(ACI Eq. 25.4.2.3a)")
         p = doc.add_paragraph()
-        p.add_run("• ldh (hook)     ≈ (fy / 23λ√f'c)·db^1.5             "
-                  "(ACI Eq. 25.4.3.1a)")
+        p.add_run("• ldh (hook)     = (0.24·fy·db) / (λ·√f'c)             "
+                  "(ACI §25.4.3.1a, SI — all ψ=1.0)")
         _make_table(doc,
             ['Direction', 'Bar', 'ld req (mm)', 'ldh req (mm)',
              'Avail straight (mm)', 'Avail hook (mm)', 'Mode',
