@@ -225,6 +225,112 @@ def _strut_force_rows(results):
     return rows
 
 
+def _pile_head_force_rows(results):
+    """Return pile-head actions transferred from the pile cap STM model."""
+    data = []
+    rows = []
+    struts = results.get("struts", [])
+    for i, s in enumerate(struts, 1):
+        pile_x, pile_y = s.get("coord", (0.0, 0.0))
+        node_x, node_y = s.get("column_coord", (0.0, 0.0))
+        axial = float(s.get("P_i_kN", 0.0))
+        hx_mag = float(s.get("F_tie_x_kN", 0.0))
+        hy_mag = float(s.get("F_tie_y_kN", 0.0))
+        dx = float(s.get("dx_from_col", pile_x - node_x))
+        dy = float(s.get("dy_from_col", pile_y - node_y))
+        hx = math.copysign(hx_mag, dx) if abs(dx) > 1e-9 else 0.0
+        hy = math.copysign(hy_mag, dy) if abs(dy) > 1e-9 else 0.0
+        h_res = math.hypot(hx, hy)
+        strut_force = float(s.get("F_strut_kN", 0.0))
+        theta = float(s.get("theta_deg", 0.0))
+        note = "Compression pile"
+        if axial < -1e-3:
+            note = "Uplift/tension pile - strut ignored in STM"
+        elif abs(axial) <= 1e-3:
+            note = "Near-zero axial"
+        item = {
+            "idx": i,
+            "pile": "P{}".format(i),
+            "x": pile_x,
+            "y": pile_y,
+            "node_x": node_x,
+            "node_y": node_y,
+            "axial": axial,
+            "hx": hx,
+            "hy": hy,
+            "h_res": h_res,
+            "strut": strut_force,
+            "theta": theta,
+            "note": note,
+        }
+        data.append(item)
+        rows.append({
+            "Pile": item["pile"],
+            "X (mm)": "{:.0f}".format(pile_x),
+            "Y (mm)": "{:.0f}".format(pile_y),
+            "Top node X (mm)": "{:.0f}".format(node_x),
+            "Top node Y (mm)": "{:.0f}".format(node_y),
+            "Axial P_i (kN)": "{:.1f}".format(axial),
+            "H_x (kN)": "{:.1f}".format(hx),
+            "H_y (kN)": "{:.1f}".format(hy),
+            "H resultant (kN)": "{:.1f}".format(h_res),
+            "F_strut (kN)": "{:.1f}".format(strut_force),
+            "θ (deg)": "{:.1f}".format(theta),
+            "Note": note,
+        })
+
+    summary = []
+    if data:
+        max_comp = max(data, key=lambda item: item["axial"])
+        min_axial = min(data, key=lambda item: item["axial"])
+        max_h = max(data, key=lambda item: item["h_res"])
+        max_hx = max(data, key=lambda item: abs(item["hx"]))
+        max_hy = max(data, key=lambda item: abs(item["hy"]))
+        max_strut = max(data, key=lambda item: item["strut"])
+
+        summary.append({
+            "Critical action": "Max axial compression",
+            "Pile": max_comp["pile"],
+            "Design value": "{:.1f} kN".format(max_comp["axial"]),
+            "Use for": "Pile axial compression design",
+        })
+        if min_axial["axial"] < -1e-3:
+            summary.append({
+                "Critical action": "Max uplift / tension",
+                "Pile": min_axial["pile"],
+                "Design value": "{:.1f} kN tension".format(
+                    abs(min_axial["axial"])),
+                "Use for": "Tension pile, anchorage, connection check",
+            })
+        summary.extend([
+            {
+                "Critical action": "Max horizontal resultant",
+                "Pile": max_h["pile"],
+                "Design value": "{:.1f} kN".format(max_h["h_res"]),
+                "Use for": "Pile-head shear / dowel reinforcement",
+            },
+            {
+                "Critical action": "Max |H_x|",
+                "Pile": max_hx["pile"],
+                "Design value": "{:.1f} kN".format(abs(max_hx["hx"])),
+                "Use for": "Pile-head shear in X direction",
+            },
+            {
+                "Critical action": "Max |H_y|",
+                "Pile": max_hy["pile"],
+                "Design value": "{:.1f} kN".format(abs(max_hy["hy"])),
+                "Use for": "Pile-head shear in Y direction",
+            },
+            {
+                "Critical action": "Max strut compression",
+                "Pile": max_strut["pile"],
+                "Design value": "{:.1f} kN".format(max_strut["strut"]),
+                "Use for": "Pile-head compression bearing / STM node",
+            },
+        ])
+    return rows, summary
+
+
 def _signed_strut_component(struts, idx, axis):
     if idx >= len(struts):
         return 0.0
@@ -434,7 +540,6 @@ from stm_visualization import (
     plot_elevation, plot_rebar_layout, plot_3d_view,
     plot_top_rebar_layout, tie_pairs_for_3d_view,
 )
-from report_generator import generate_report
 
 st.set_page_config(page_title="STM Pile Cap Designer",
                    layout="wide", page_icon="🏗️")
@@ -445,14 +550,26 @@ st.markdown(
     div[data-testid="stTabs"] div[data-baseweb="tab-list"] {
         gap: 0.35rem;
         flex-wrap: wrap;
+        overflow-x: auto;
+        overflow-y: visible;
         border-bottom: 2px solid #cbd5e1;
         padding: 0.25rem 0 0.45rem 0;
         margin-bottom: 0.75rem;
     }
 
+    div[data-testid="stTabs"] div[role="tablist"] {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        overflow-x: auto;
+        overflow-y: visible;
+        padding-bottom: 0.45rem;
+    }
+
     div[data-testid="stTabs"] button[data-baseweb="tab"] {
         height: 2.65rem;
-        padding: 0 0.95rem;
+        padding: 0 0.72rem;
+        flex: 0 0 auto;
         border: 1px solid #d7dee8;
         border-bottom-color: #cbd5e1;
         border-radius: 8px 8px 0 0;
@@ -464,10 +581,14 @@ st.markdown(
     }
 
     div[data-testid="stTabs"] button[data-baseweb="tab"] p {
-        font-size: 0.96rem;
+        font-size: 0.92rem;
         font-weight: 650;
         line-height: 1.1;
         white-space: nowrap;
+    }
+
+    div[data-testid="stTabs"] button[role="tab"] {
+        flex: 0 0 auto;
     }
 
     div[data-testid="stTabs"] button[data-baseweb="tab"]:hover {
@@ -538,6 +659,7 @@ if not _had_spacing_y:
 
 st.title("🏗️ STM Pile Cap Designer")
 st.caption("Strut-and-Tie Method - ACI 318-19 / CRSI Design Handbook")
+st.caption("Build 2026-05-12 | includes 🧱 Pile Forces tab")
 
 # --------- Save / Load JSON ---------
 with st.sidebar:
@@ -1111,10 +1233,10 @@ if "_stm_results" in st.session_state:
         st.dataframe(pd.DataFrame(recs), use_container_width=True,
                      hide_index=True)
 
-    t1, t2, t6, t3, t7, t4, t5 = st.tabs([
+    t1, t2, t6, t3, t7, t4, t8, t5 = st.tabs([
         "📊 Plan", "📈 Elevation", "🎲 3D View",
-        "🔩 Bottom Rebar", "🪟 Top Rebar",
-        "⚓ Anchorage", "📋 Detail"])
+        "🔩 Bottom", "🪟 Top",
+        "⚓ Anchor", "🧱 Pile Forces", "📋 Detail"])
 
     with t1:
         st.plotly_chart(
@@ -1707,6 +1829,52 @@ As_min,bottom = ρ_min × Ag
         ck = pd.concat([ck, pd.DataFrame(extra_checks)], ignore_index=True)
         st.dataframe(ck, use_container_width=True, hide_index=True)
 
+        with st.expander("Pile head forces summary", expanded=False):
+            pile_force_rows, pile_force_summary = _pile_head_force_rows(results)
+            if pile_force_summary:
+                st.markdown("#### Critical Pile Summary")
+                st.dataframe(
+                    pd.DataFrame(pile_force_summary),
+                    use_container_width=True, hide_index=True)
+            if pile_force_rows:
+                st.markdown("#### Forces by Pile")
+                st.dataframe(
+                    pd.DataFrame(pile_force_rows),
+                    use_container_width=True, hide_index=True)
+
+    with t8:
+        st.markdown("### Pile Head Forces Below Pile Cap")
+        st.caption(
+            "Forces are derived from the selected STM strut geometry. "
+            "Axial P_i is the rigid-cap pile reaction; H_x and H_y are the "
+            "signed horizontal components of each pile strut at the pile head.")
+        _formula_box(
+            "H_x,i = P_i(compression) x dx_i / d_eff\n"
+            "H_y,i = P_i(compression) x dy_i / d_eff\n"
+            "H_res,i = sqrt(H_x,i^2 + H_y,i^2)\n"
+            "F_strut,i = P_i(compression) x L_strut,i / d_eff\n\n"
+            "Sign convention: +H_x / +H_y follows the direction from the "
+            "selected top compression node toward the pile head.")
+
+        pile_force_rows, pile_force_summary = _pile_head_force_rows(results)
+        if pile_force_summary:
+            st.markdown("### Critical Pile Summary")
+            st.dataframe(
+                pd.DataFrame(pile_force_summary),
+                use_container_width=True, hide_index=True)
+
+        if pile_force_rows:
+            st.markdown("### Forces by Pile")
+            st.dataframe(
+                pd.DataFrame(pile_force_rows),
+                use_container_width=True, hide_index=True)
+            st.info(
+                "Use `Axial P_i` together with `H resultant` or directional "
+                "`H_x/H_y` for preliminary pile-head reinforcement design. "
+                "Pile-head moment is not calculated here because it depends "
+                "on pile fixity, embedment, connection detailing, and soil/"
+                "substructure stiffness assumptions.")
+
     # Export Report
     st.divider()
     st.subheader("📄 Export Report")
@@ -1732,6 +1900,7 @@ As_min,bottom = ρ_min × Ag
         "clear_min": st.session_state.clear_min,
     }
     try:
+        from report_generator import generate_report
         docx_buf = generate_report(
             inputs_dict, results, x_chk, y_chk, pairs,
             anch_x=anch_x, anch_y=anch_y,
