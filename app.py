@@ -281,6 +281,19 @@ def _pile_head_force_rows(results):
 
     summary = []
     if data:
+        def _summary_row(action, item, use_for):
+            return {
+                "Critical case": action,
+                "Pile": item["pile"],
+                "Axial P_i (kN)": "{:.1f}".format(item["axial"]),
+                "H_x concurrent (kN)": "{:.1f}".format(item["hx"]),
+                "H_y concurrent (kN)": "{:.1f}".format(item["hy"]),
+                "H resultant (kN)": "{:.1f}".format(item["h_res"]),
+                "F_strut (kN)": "{:.1f}".format(item["strut"]),
+                "θ (deg)": "{:.1f}".format(item["theta"]),
+                "Use for": use_for,
+            }
+
         max_comp = max(data, key=lambda item: item["axial"])
         min_axial = min(data, key=lambda item: item["axial"])
         max_h = max(data, key=lambda item: item["h_res"])
@@ -288,45 +301,35 @@ def _pile_head_force_rows(results):
         max_hy = max(data, key=lambda item: abs(item["hy"]))
         max_strut = max(data, key=lambda item: item["strut"])
 
-        summary.append({
-            "Critical action": "Max axial compression",
-            "Pile": max_comp["pile"],
-            "Design value": "{:.1f} kN".format(max_comp["axial"]),
-            "Use for": "Pile axial compression design",
-        })
-        if min_axial["axial"] < -1e-3:
-            summary.append({
-                "Critical action": "Max uplift / tension",
-                "Pile": min_axial["pile"],
-                "Design value": "{:.1f} kN tension".format(
-                    abs(min_axial["axial"])),
-                "Use for": "Tension pile, anchorage, connection check",
-            })
+        summary.append(_summary_row(
+            "Max axial compression",
+            max_comp,
+            "Pile axial compression with concurrent pile-head shear"))
+        min_label = (
+            "Min axial / max tension"
+            if min_axial["axial"] < -1e-3
+            else "Min axial compression")
+        summary.append(_summary_row(
+            min_label,
+            min_axial,
+            "Minimum compression or tension case with concurrent shear"))
         summary.extend([
-            {
-                "Critical action": "Max horizontal resultant",
-                "Pile": max_h["pile"],
-                "Design value": "{:.1f} kN".format(max_h["h_res"]),
-                "Use for": "Pile-head shear / dowel reinforcement",
-            },
-            {
-                "Critical action": "Max |H_x|",
-                "Pile": max_hx["pile"],
-                "Design value": "{:.1f} kN".format(abs(max_hx["hx"])),
-                "Use for": "Pile-head shear in X direction",
-            },
-            {
-                "Critical action": "Max |H_y|",
-                "Pile": max_hy["pile"],
-                "Design value": "{:.1f} kN".format(abs(max_hy["hy"])),
-                "Use for": "Pile-head shear in Y direction",
-            },
-            {
-                "Critical action": "Max strut compression",
-                "Pile": max_strut["pile"],
-                "Design value": "{:.1f} kN".format(max_strut["strut"]),
-                "Use for": "Pile-head compression bearing / STM node",
-            },
+            _summary_row(
+                "Max horizontal resultant",
+                max_h,
+                "Pile-head shear resultant with concurrent axial force"),
+            _summary_row(
+                "Max |H_x|",
+                max_hx,
+                "X-direction pile-head shear with concurrent axial force"),
+            _summary_row(
+                "Max |H_y|",
+                max_hy,
+                "Y-direction pile-head shear with concurrent axial force"),
+            _summary_row(
+                "Max strut compression",
+                max_strut,
+                "Pile-head compression bearing / STM node"),
         ])
     return rows, summary
 
@@ -1848,6 +1851,10 @@ As_min,bottom = ρ_min × Ag
             "Forces are derived from the selected STM strut geometry. "
             "Axial P_i is the rigid-cap pile reaction; H_x and H_y are the "
             "signed horizontal components of each pile strut at the pile head.")
+        st.caption(
+            "Critical rows show concurrent actions from the same pile. They "
+            "are not an envelope combination of maximum values from different "
+            "piles.")
         _formula_box(
             "H_x,i = P_i(compression) x dx_i / d_eff\n"
             "H_y,i = P_i(compression) x dy_i / d_eff\n"
