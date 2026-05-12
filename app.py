@@ -1235,7 +1235,7 @@ if "_stm_results" in st.session_state:
 
     t1, t2, t6, t3, t7, t4, t8, t5 = st.tabs([
         "📊 Plan", "📈 Elevation", "🎲 3D View",
-        "🔩 Bottom", "🪟 Top",
+        "🔩 Bottom Rebar", "🪟 Top Rebar",
         "⚓ Anchor", "🧱 Pile Forces", "📋 Detail"])
 
     with t1:
