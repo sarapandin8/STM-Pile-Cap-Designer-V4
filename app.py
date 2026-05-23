@@ -1012,6 +1012,98 @@ with st.sidebar:
     y_n = st.session_state.y_n
 
     st.divider()
+
+    # ===== LOADS (always visible — required before Calculate STM) =====
+    import pandas as _pd_loads
+    st.subheader("📥 Load Cases")
+
+    # ── ULS ──────────────────────────────────────────────────────────────
+    with st.expander("🔴 ULS — Ultimate Limit State", expanded=True):
+        st.caption(
+            "ใช้สำหรับออกแบบเหล็กเสริม Pile Cap (STM) และเหล็กเสริมเสาเข็ม (PMM) "
+            "| Pu, Mux, Muy → pile reactions  |  Hux, Huy → กระจายเท่ากัน n ต้น")
+        _uls_cases_in = st.session_state.get(
+            "load_cases_uls", DEFAULTS["load_cases_uls"])
+        _uls_df = _pd_loads.DataFrame([{
+            "Case":       c.get("name", "ULS"),
+            "Pu (kN)":    float(c.get("Pu",  0.0)),
+            "Mux (kN·m)": float(c.get("Mux", 0.0)),
+            "Muy (kN·m)": float(c.get("Muy", 0.0)),
+            "Hux (kN)":   float(c.get("Hux", 0.0)),
+            "Huy (kN)":   float(c.get("Huy", 0.0)),
+        } for c in _uls_cases_in])
+        _edited_uls_pre = st.data_editor(
+            _uls_df, num_rows="dynamic",
+            use_container_width=True, key="uls_editor_pre",
+            column_config={
+                "Case":       st.column_config.TextColumn("Case Name", width="small"),
+                "Pu (kN)":    st.column_config.NumberColumn(format="%.1f"),
+                "Mux (kN·m)": st.column_config.NumberColumn(format="%.1f"),
+                "Muy (kN·m)": st.column_config.NumberColumn(format="%.1f"),
+                "Hux (kN)":   st.column_config.NumberColumn(format="%.1f"),
+                "Huy (kN)":   st.column_config.NumberColumn(format="%.1f"),
+            })
+        _new_uls_pre = []
+        for _, _r in _edited_uls_pre.iterrows():
+            _new_uls_pre.append({
+                "name": str(_r.get("Case", "ULS")),
+                "Pu":  float(_r.get("Pu (kN)",   0.0) or 0.0),
+                "Mux": float(_r.get("Mux (kN·m)", 0.0) or 0.0),
+                "Muy": float(_r.get("Muy (kN·m)", 0.0) or 0.0),
+                "Hux": float(_r.get("Hux (kN)",  0.0) or 0.0),
+                "Huy": float(_r.get("Huy (kN)",  0.0) or 0.0),
+            })
+        if _new_uls_pre:
+            st.session_state["load_cases_uls"] = _new_uls_pre
+        _case_names_pre = [c["name"] for c in _new_uls_pre] if _new_uls_pre else ["ULS-1"]
+        _cur_idx_pre = min(int(st.session_state.get("active_uls_idx", 0)),
+                           len(_case_names_pre) - 1)
+        _sel_pre = st.radio(
+            "✅ Active ULS case (ใช้คำนวณ STM):",
+            _case_names_pre, index=_cur_idx_pre,
+            horizontal=True, key="active_uls_radio_pre")
+        st.session_state["active_uls_idx"] = _case_names_pre.index(_sel_pre)
+
+    # ── SLS ──────────────────────────────────────────────────────────────
+    with st.expander("🔵 SLS — Serviceability Limit State", expanded=False):
+        st.caption(
+            "ใช้สำหรับตรวจสอบกำลังรับน้ำหนักเสาเข็ม (Geotechnical capacity) "
+            "| P_i(SLS) เทียบกับ Q_allow รายต้น")
+        _sls_cases_in = st.session_state.get(
+            "load_cases_sls", DEFAULTS["load_cases_sls"])
+        _sls_df = _pd_loads.DataFrame([{
+            "Case":       c.get("name", "SLS"),
+            "P (kN)":     float(c.get("P",  0.0)),
+            "Mx (kN·m)":  float(c.get("Mx", 0.0)),
+            "My (kN·m)":  float(c.get("My", 0.0)),
+            "Hx (kN)":    float(c.get("Hx", 0.0)),
+            "Hy (kN)":    float(c.get("Hy", 0.0)),
+        } for c in _sls_cases_in])
+        _edited_sls_pre = st.data_editor(
+            _sls_df, num_rows="dynamic",
+            use_container_width=True, key="sls_editor_pre",
+            column_config={
+                "Case":       st.column_config.TextColumn("Case Name", width="small"),
+                "P (kN)":     st.column_config.NumberColumn(format="%.1f"),
+                "Mx (kN·m)":  st.column_config.NumberColumn(format="%.1f"),
+                "My (kN·m)":  st.column_config.NumberColumn(format="%.1f"),
+                "Hx (kN)":    st.column_config.NumberColumn(format="%.1f"),
+                "Hy (kN)":    st.column_config.NumberColumn(format="%.1f"),
+            })
+        _new_sls_pre = []
+        for _, _r in _edited_sls_pre.iterrows():
+            _new_sls_pre.append({
+                "name": str(_r.get("Case", "SLS")),
+                "P":  float(_r.get("P (kN)",  0.0) or 0.0),
+                "Mx": float(_r.get("Mx (kN·m)", 0.0) or 0.0),
+                "My": float(_r.get("My (kN·m)", 0.0) or 0.0),
+                "Hx": float(_r.get("Hx (kN)", 0.0) or 0.0),
+                "Hy": float(_r.get("Hy (kN)", 0.0) or 0.0),
+            })
+        if _new_sls_pre:
+            st.session_state["load_cases_sls"] = _new_sls_pre
+
+    st.divider()
     calc_btn = st.button("🧮 Calculate STM",
                          type="primary", use_container_width=True)
 
@@ -1326,149 +1418,40 @@ if "_stm_results" in st.session_state:
                 "Design Force Summary for governing bottom reinforcement.")
     
     with t_loads:
-        import pandas as _pd_loads
-
-        st.markdown("### Load Cases")
-
-        # ── ULS ──────────────────────────────────────────────────────────
-        st.markdown("#### 🔴 ULS — Ultimate Limit State")
+        st.markdown("### SLS Pile Reactions")
         st.caption(
-            "ใช้สำหรับออกแบบเหล็กเสริม Pile Cap (STM) และเหล็กเสริมเสาเข็ม (PMM) "
-            "| Pu, Mux, Muy สำหรับ pile reactions  |  Hux, Huy กระจายลงเสาเข็มเท่ากัน n ต้น")
-
-        _uls_cases = st.session_state.get("load_cases_uls",
-                                          DEFAULTS["load_cases_uls"])
-        _uls_df = _pd_loads.DataFrame([{
-            "Case": c.get("name", "ULS"),
-            "Pu (kN)":   float(c.get("Pu",  0.0)),
-            "Mux (kN·m)": float(c.get("Mux", 0.0)),
-            "Muy (kN·m)": float(c.get("Muy", 0.0)),
-            "Hux (kN)":  float(c.get("Hux", 0.0)),
-            "Huy (kN)":  float(c.get("Huy", 0.0)),
-        } for c in _uls_cases])
-
-        _edited_uls = st.data_editor(
-            _uls_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="uls_data_editor",
-            column_config={
-                "Case":       st.column_config.TextColumn("Case Name", width="small"),
-                "Pu (kN)":    st.column_config.NumberColumn(format="%.1f"),
-                "Mux (kN·m)": st.column_config.NumberColumn(format="%.1f"),
-                "Muy (kN·m)": st.column_config.NumberColumn(format="%.1f"),
-                "Hux (kN)":   st.column_config.NumberColumn(format="%.1f"),
-                "Huy (kN)":   st.column_config.NumberColumn(format="%.1f"),
-            })
-
-        # Store back to session state
-        _new_uls = []
-        for _, _r in _edited_uls.iterrows():
-            _new_uls.append({
-                "name": str(_r.get("Case", "ULS")),
-                "Pu":  float(_r.get("Pu (kN)",   0.0) or 0.0),
-                "Mux": float(_r.get("Mux (kN·m)", 0.0) or 0.0),
-                "Muy": float(_r.get("Muy (kN·m)", 0.0) or 0.0),
-                "Hux": float(_r.get("Hux (kN)",  0.0) or 0.0),
-                "Huy": float(_r.get("Huy (kN)",  0.0) or 0.0),
-            })
-        if _new_uls:
-            st.session_state["load_cases_uls"] = _new_uls
-
-        # Active case selector
-        _case_names = [c["name"] for c in _new_uls] if _new_uls else ["ULS-1"]
-        _cur_idx = int(st.session_state.get("active_uls_idx", 0))
-        _cur_idx = min(_cur_idx, len(_case_names) - 1)
-        _sel = st.radio(
-            "✅ Active ULS case (ใช้คำนวณ STM และออกแบบ):",
-            _case_names, index=_cur_idx, horizontal=True,
-            key="active_uls_radio")
-        st.session_state["active_uls_idx"] = _case_names.index(_sel)
-
-        _ac = _new_uls[st.session_state["active_uls_idx"]] if _new_uls else {}
-        _c1, _c2, _c3, _c4, _c5 = st.columns(5)
-        _c1.metric("Pu (kN)",    "{:.0f}".format(_ac.get("Pu",  0.0)))
-        _c2.metric("Mux (kN·m)", "{:.0f}".format(_ac.get("Mux", 0.0)))
-        _c3.metric("Muy (kN·m)", "{:.0f}".format(_ac.get("Muy", 0.0)))
-        _c4.metric("Hux (kN)",   "{:.0f}".format(_ac.get("Hux", 0.0)))
-        _c5.metric("Huy (kN)",   "{:.0f}".format(_ac.get("Huy", 0.0)))
-
-        st.divider()
-
-        # ── SLS ──────────────────────────────────────────────────────────
-        st.markdown("#### 🔵 SLS — Serviceability Limit State")
-        st.caption(
-            "ใช้สำหรับตรวจสอบกำลังรับน้ำหนักเสาเข็ม (Geotechnical capacity) "
-            "| P_i(SLS) เทียบกับ Q_allow ของเสาเข็มแต่ละต้น")
-
-        _sls_cases = st.session_state.get("load_cases_sls",
-                                          DEFAULTS["load_cases_sls"])
-        _sls_df = _pd_loads.DataFrame([{
-            "Case":        c.get("name", "SLS"),
-            "P (kN)":     float(c.get("P",  0.0)),
-            "Mx (kN·m)":  float(c.get("Mx", 0.0)),
-            "My (kN·m)":  float(c.get("My", 0.0)),
-            "Hx (kN)":   float(c.get("Hx", 0.0)),
-            "Hy (kN)":   float(c.get("Hy", 0.0)),
-        } for c in _sls_cases])
-
-        _edited_sls = st.data_editor(
-            _sls_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="sls_data_editor",
-            column_config={
-                "Case":       st.column_config.TextColumn("Case Name", width="small"),
-                "P (kN)":     st.column_config.NumberColumn(format="%.1f"),
-                "Mx (kN·m)":  st.column_config.NumberColumn(format="%.1f"),
-                "My (kN·m)":  st.column_config.NumberColumn(format="%.1f"),
-                "Hx (kN)":    st.column_config.NumberColumn(format="%.1f"),
-                "Hy (kN)":    st.column_config.NumberColumn(format="%.1f"),
-            })
-
-        _new_sls = []
-        for _, _r in _edited_sls.iterrows():
-            _new_sls.append({
-                "name": str(_r.get("Case", "SLS")),
-                "P":  float(_r.get("P (kN)",  0.0) or 0.0),
-                "Mx": float(_r.get("Mx (kN·m)", 0.0) or 0.0),
-                "My": float(_r.get("My (kN·m)", 0.0) or 0.0),
-                "Hx": float(_r.get("Hx (kN)", 0.0) or 0.0),
-                "Hy": float(_r.get("Hy (kN)", 0.0) or 0.0),
-            })
-        if _new_sls:
-            st.session_state["load_cases_sls"] = _new_sls
-
-        # SLS pile reactions for each case
-        if coords and _new_sls:
-            st.markdown("#### แรงที่เสาเข็มแต่ละต้น (SLS)")
-            from stm_calculations import compute_pile_reactions
-            _sls_pile_data = {}
-            for _sc in _new_sls:
+            "แรงแนวแกนที่เสาเข็มแต่ละต้นภายใต้ SLS loads — เทียบกับ Q_allow ของเสาเข็ม "
+            "| แก้ไข SLS loads ได้ใน Load Cases ด้านบน (ก่อนกด Calculate STM)")
+        _sls_cases_res = st.session_state.get(
+            "load_cases_sls", DEFAULTS["load_cases_sls"])
+        if coords and _sls_cases_res:
+            from stm_calculations import compute_pile_reactions as _cpr
+            _sls_pile_data2 = {}
+            for _sc in _sls_cases_res:
                 try:
-                    _pl, _ = compute_pile_reactions(
-                        coords,
-                        float(_sc.get("P", 0.0)),
-                        float(_sc.get("Mx", 0.0)),
-                        float(_sc.get("My", 0.0)),
-                        return_info=True)
-                    _sls_pile_data[_sc["name"]] = _pl
+                    _pl2, _ = _cpr(coords,
+                                   float(_sc.get("P", 0.0)),
+                                   float(_sc.get("Mx", 0.0)),
+                                   float(_sc.get("My", 0.0)),
+                                   return_info=True)
+                    _sls_pile_data2[_sc["name"]] = _pl2
                 except Exception:
-                    _sls_pile_data[_sc["name"]] = [None] * len(coords)
-
-            _sls_table = {"Pile": ["P{}".format(i+1) for i in range(len(coords))],
-                          "X (mm)": ["{:.0f}".format(c[0]) for c in coords],
-                          "Y (mm)": ["{:.0f}".format(c[1]) for c in coords]}
-            for _sc in _new_sls:
-                _pl = _sls_pile_data[_sc["name"]]
-                _sls_table["{}\nP_i (kN)".format(_sc["name"])] = [
-                    "{:.1f}".format(v) if v is not None else "—" for v in _pl]
-
-            st.dataframe(_pd_loads.DataFrame(_sls_table),
+                    _sls_pile_data2[_sc["name"]] = [None] * len(coords)
+            _sls_tbl2 = {
+                "Pile": ["P{}".format(i+1) for i in range(len(coords))],
+                "X (mm)": ["{:.0f}".format(c[0]) for c in coords],
+                "Y (mm)": ["{:.0f}".format(c[1]) for c in coords],
+            }
+            for _sc in _sls_cases_res:
+                _pl2 = _sls_pile_data2[_sc["name"]]
+                _sls_tbl2["{} P_i (kN)".format(_sc["name"])] = [
+                    "{:.1f}".format(v) if v is not None else "—" for v in _pl2]
+            st.dataframe(pd.DataFrame(_sls_tbl2),
                          use_container_width=True, hide_index=True)
-            st.caption("⚠️ P_i(SLS) คือแรงแนวแกนจาก P, Mx, My เท่านั้น "
-                       "ไม่รวม W_cap — หากต้องการรวมน้ำหนักฐานให้บวก W_cap เข้าใน P ด้วย")
-
+            st.caption(
+                "\u26a0\ufe0f P_i(SLS) คำนวณจาก P, Mx, My เท่านั้น ยังไม่รวม W_cap")
+        else:
+            st.info("ยังไม่มีข้อมูล SLS — กรอกใน SLS Load Cases ด้านบนก่อน Calculate STM")
     with t3:
         st.markdown("### Required Reinforcement")
         st.caption(
