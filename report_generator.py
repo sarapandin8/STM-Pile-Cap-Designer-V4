@@ -745,6 +745,8 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
          "{:.1f} kN".format(_pu_total)],
         ["Moment Mux (about X-axis)", "{:.1f} kN·m".format(inputs['Mux'])],
         ["Moment Muy (about Y-axis)", "{:.1f} kN·m".format(inputs['Muy'])],
+        ["Lateral Hux (shear in X, ULS)", "{:.1f} kN".format(inputs.get('Hux', 0.0))],
+        ["Lateral Huy (shear in Y, ULS)", "{:.1f} kN".format(inputs.get('Huy', 0.0))],
     ])
 
     # 2. Pile Layout

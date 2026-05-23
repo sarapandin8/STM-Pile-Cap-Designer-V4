@@ -226,110 +226,103 @@ def _strut_force_rows(results):
 
 
 def _pile_head_force_rows(results):
-    """Return pile-head actions transferred from the pile cap STM model."""
+    """Return pile-head actions transferred from the pile cap STM model.
+    H_x_total = strut component + Hux/n (direct lateral)
+    H_y_total = strut component + Huy/n (direct lateral)
+    """
     data = []
     rows = []
     struts = results.get("struts", [])
+    n = len(struts)
     for i, s in enumerate(struts, 1):
         pile_x, pile_y = s.get("coord", (0.0, 0.0))
         node_x, node_y = s.get("column_coord", (0.0, 0.0))
-        axial = float(s.get("P_i_kN", 0.0))
-        hx_mag = float(s.get("F_tie_x_kN", 0.0))
-        hy_mag = float(s.get("F_tie_y_kN", 0.0))
-        dx = float(s.get("dx_from_col", pile_x - node_x))
-        dy = float(s.get("dy_from_col", pile_y - node_y))
-        hx = math.copysign(hx_mag, dx) if abs(dx) > 1e-9 else 0.0
-        hy = math.copysign(hy_mag, dy) if abs(dy) > 1e-9 else 0.0
-        h_res = math.hypot(hx, hy)
-        strut_force = float(s.get("F_strut_kN", 0.0))
-        theta = float(s.get("theta_deg", 0.0))
+        axial        = float(s.get("P_i_kN", 0.0))
+        hx_strut     = float(s.get("H_x_strut_kN",  0.0))
+        hy_strut     = float(s.get("H_y_strut_kN",  0.0))
+        hx_direct    = float(s.get("H_x_direct_kN", 0.0))
+        hy_direct    = float(s.get("H_y_direct_kN", 0.0))
+        hx           = float(s.get("H_x_total_kN",  hx_strut + hx_direct))
+        hy           = float(s.get("H_y_total_kN",  hy_strut + hy_direct))
+        h_res        = float(s.get("H_res_total_kN", math.hypot(hx, hy)))
+        strut_force  = float(s.get("F_strut_kN", 0.0))
+        theta        = float(s.get("theta_deg", 0.0))
         note = "Compression pile"
         if axial < -1e-3:
             note = "Uplift/tension pile - strut ignored in STM"
         elif abs(axial) <= 1e-3:
             note = "Near-zero axial"
         item = {
-            "idx": i,
-            "pile": "P{}".format(i),
-            "x": pile_x,
-            "y": pile_y,
-            "node_x": node_x,
-            "node_y": node_y,
+            "idx": i, "pile": "P{}".format(i),
+            "x": pile_x, "y": pile_y,
+            "node_x": node_x, "node_y": node_y,
             "axial": axial,
-            "hx": hx,
-            "hy": hy,
-            "h_res": h_res,
-            "strut": strut_force,
-            "theta": theta,
-            "note": note,
+            "hx": hx, "hy": hy, "h_res": h_res,
+            "hx_strut": hx_strut, "hy_strut": hy_strut,
+            "hx_direct": hx_direct, "hy_direct": hy_direct,
+            "strut": strut_force, "theta": theta, "note": note,
         }
         data.append(item)
         rows.append({
-            "Pile": item["pile"],
-            "X (mm)": "{:.0f}".format(pile_x),
-            "Y (mm)": "{:.0f}".format(pile_y),
-            "Top node X (mm)": "{:.0f}".format(node_x),
-            "Top node Y (mm)": "{:.0f}".format(node_y),
-            "Axial P_i (kN)": "{:.1f}".format(axial),
-            "H_x (kN)": "{:.1f}".format(hx),
-            "H_y (kN)": "{:.1f}".format(hy),
-            "H resultant (kN)": "{:.1f}".format(h_res),
-            "F_strut (kN)": "{:.1f}".format(strut_force),
-            "θ (deg)": "{:.1f}".format(theta),
-            "Note": note,
+            "Pile":                  item["pile"],
+            "X (mm)":               "{:.0f}".format(pile_x),
+            "Y (mm)":               "{:.0f}".format(pile_y),
+            "Top node X (mm)":      "{:.0f}".format(node_x),
+            "Top node Y (mm)":      "{:.0f}".format(node_y),
+            "Pu,i (kN)":           "{:.1f}".format(axial),
+            "Hux,i strut (kN)":    "{:.1f}".format(hx_strut),
+            "Hux,i direct (kN)":   "{:.1f}".format(hx_direct),
+            "Hux,i total (kN)":    "{:.1f}".format(hx),
+            "Huy,i strut (kN)":    "{:.1f}".format(hy_strut),
+            "Huy,i direct (kN)":   "{:.1f}".format(hy_direct),
+            "Huy,i total (kN)":    "{:.1f}".format(hy),
+            "Hu,res,i (kN)":       "{:.1f}".format(h_res),
+            "F_strut (kN)":        "{:.1f}".format(strut_force),
+            "θ (deg)":             "{:.1f}".format(theta),
+            "Note":                note,
         })
 
     summary = []
     if data:
         def _summary_row(action, item, use_for):
             return {
-                "Critical case": action,
-                "Pile": item["pile"],
-                "Axial P_i (kN)": "{:.1f}".format(item["axial"]),
-                "H_x concurrent (kN)": "{:.1f}".format(item["hx"]),
-                "H_y concurrent (kN)": "{:.1f}".format(item["hy"]),
-                "H resultant (kN)": "{:.1f}".format(item["h_res"]),
-                "F_strut (kN)": "{:.1f}".format(item["strut"]),
-                "θ (deg)": "{:.1f}".format(item["theta"]),
-                "Use for": use_for,
+                "Critical case":           action,
+                "Pile":                    item["pile"],
+                "Pu,i (kN)":              "{:.1f}".format(item["axial"]),
+                "Hux,i concurrent (kN)":  "{:.1f}".format(item["hx"]),
+                "Huy,i concurrent (kN)":  "{:.1f}".format(item["hy"]),
+                "Hu,res,i (kN)":          "{:.1f}".format(item["h_res"]),
+                "F_strut (kN)":           "{:.1f}".format(item["strut"]),
+                "θ (deg)":                "{:.1f}".format(item["theta"]),
+                "Use for":                use_for,
             }
 
-        max_comp = max(data, key=lambda item: item["axial"])
-        min_axial = min(data, key=lambda item: item["axial"])
-        max_h = max(data, key=lambda item: item["h_res"])
-        max_hx = max(data, key=lambda item: abs(item["hx"]))
-        max_hy = max(data, key=lambda item: abs(item["hy"]))
-        max_strut = max(data, key=lambda item: item["strut"])
+        max_comp   = max(data, key=lambda it: it["axial"])
+        min_axial  = min(data, key=lambda it: it["axial"])
+        max_h      = max(data, key=lambda it: it["h_res"])
+        max_hx     = max(data, key=lambda it: abs(it["hx"]))
+        max_hy     = max(data, key=lambda it: abs(it["hy"]))
+        max_strut  = max(data, key=lambda it: it["strut"])
 
         summary.append(_summary_row(
-            "Max axial compression",
-            max_comp,
+            "Max axial compression", max_comp,
             "Pile axial compression with concurrent pile-head shear"))
         min_label = (
             "Min axial / max tension"
             if min_axial["axial"] < -1e-3
             else "Min axial compression")
         summary.append(_summary_row(
-            min_label,
-            min_axial,
+            min_label, min_axial,
             "Minimum compression or tension case with concurrent shear"))
         summary.extend([
-            _summary_row(
-                "Max horizontal resultant",
-                max_h,
-                "Pile-head shear resultant with concurrent axial force"),
-            _summary_row(
-                "Max |H_x|",
-                max_hx,
-                "X-direction pile-head shear with concurrent axial force"),
-            _summary_row(
-                "Max |H_y|",
-                max_hy,
-                "Y-direction pile-head shear with concurrent axial force"),
-            _summary_row(
-                "Max strut compression",
-                max_strut,
-                "Pile-head compression bearing / STM node"),
+            _summary_row("Max horizontal resultant", max_h,
+                         "Pile-head shear resultant with concurrent axial force"),
+            _summary_row("Max |Hux|", max_hx,
+                         "X-direction pile-head shear with concurrent axial force"),
+            _summary_row("Max |Huy|", max_hy,
+                         "Y-direction pile-head shear with concurrent axial force"),
+            _summary_row("Max strut compression", max_strut,
+                         "Pile-head compression bearing / STM node"),
         ])
     return rows, summary
 
@@ -626,6 +619,14 @@ st.markdown(
 DEFAULTS = {
     "fc": 28.0, "fy": 420.0, "cover": 75,
     "Pu": 5000.0, "Mux": 0.0, "Muy": 0.0,
+    # --- Multi load-case tables (V5) ---
+    "load_cases_uls": [
+        {"name": "ULS-1", "Pu": 5000.0, "Mux": 0.0, "Muy": 0.0,
+         "Hux": 0.0, "Huy": 0.0}],
+    "load_cases_sls": [
+        {"name": "SLS-1", "P": 4000.0, "Mx": 0.0, "My": 0.0,
+         "Hx": 0.0, "Hy": 0.0}],
+    "active_uls_idx": 0,
     "col_size": 500, "D": 600, "h_cap": 900,
     "col_section": "Square",
     "col_bx": 500.0, "col_by": 500.0, "col_diam": 500.0,
@@ -695,6 +696,18 @@ with st.sidebar:
                     st.session_state.spacing_factor_x = data["spacing_factor"]
                 if "spacing_factor_y" not in data:
                     st.session_state.spacing_factor_y = data["spacing_factor"]
+            # --- Migration: old files (Pu/Mux/Muy at top level, no load_cases_uls) ---
+            if "Pu" in data and "load_cases_uls" not in data:
+                st.session_state["load_cases_uls"] = [{
+                    "name": "ULS-1",
+                    "Pu":  float(data.get("Pu",  5000.0)),
+                    "Mux": float(data.get("Mux", 0.0)),
+                    "Muy": float(data.get("Muy", 0.0)),
+                    "Hux": 0.0, "Huy": 0.0,
+                }]
+                st.session_state["active_uls_idx"] = 0
+            if "load_cases_sls" not in data:
+                st.session_state["load_cases_sls"] = DEFAULTS["load_cases_sls"]
             st.session_state["_last_upload_id"] = up.file_id
             st.success("Loaded — refreshing...")
             st.rerun()
@@ -712,16 +725,7 @@ with st.sidebar:
         st.number_input("fy (MPa)", 280.0, 700.0, step=10.0, key="fy")
         st.number_input("Cover (mm)", 50, 200, step=5, key="cover")
 
-    with st.expander("Column Loads", expanded=True):
-        st.number_input("Pu — axial (kN)",
-                        100.0, 50000.0, step=100.0, key="Pu")
-        st.number_input("Mux — moment about X (kN·m)",
-                        -50000.0, 50000.0, step=10.0, key="Mux",
-                        help="P_i ∝ +y_i when Mux > 0")
-        st.number_input("Muy — moment about Y (kN·m)",
-                        -50000.0, 50000.0, step=10.0, key="Muy",
-                        help="P_i ∝ +x_i when Muy > 0")
-        
+    with st.expander("Column", expanded=True):
         st.selectbox("Column section",
                      ["Square", "Rectangular", "Circular"],
                      key="col_section")
@@ -783,9 +787,16 @@ with st.sidebar:
     fc = st.session_state.fc
     fy = st.session_state.fy
     cover = st.session_state.cover
-    Pu = st.session_state.Pu
-    Mux = st.session_state.Mux
-    Muy = st.session_state.Muy
+    # --- Active ULS case ---
+    _uls_cases = st.session_state.get("load_cases_uls", DEFAULTS["load_cases_uls"])
+    _active_idx = int(st.session_state.get("active_uls_idx", 0))
+    _active_idx = min(_active_idx, len(_uls_cases) - 1) if _uls_cases else 0
+    _active_case = _uls_cases[_active_idx] if _uls_cases else DEFAULTS["load_cases_uls"][0]
+    Pu  = float(_active_case.get("Pu",  5000.0))
+    Mux = float(_active_case.get("Mux", 0.0))
+    Muy = float(_active_case.get("Muy", 0.0))
+    Hux = float(_active_case.get("Hux", 0.0))
+    Huy = float(_active_case.get("Huy", 0.0))
     col_size = {
         "section": st.session_state.col_section,
         "bx": float(st.session_state.col_bx),
@@ -1098,7 +1109,8 @@ if calc_btn:
                           _col_design, h_cap, cover, W_cap_kN=W_cap_kN,
                           fy_x=_fy_x, fy_y=_fy_y,
                           x_bar_size=x_bar, y_bar_size=y_bar,
-                          stm_model_type=st.session_state.stm_model_type)
+                          stm_model_type=st.session_state.stm_model_type,
+                          Hux_kN=Hux, Huy_kN=Huy)
         if "error" in _res:
             st.error(_res["error"])
             st.session_state.pop("_stm_results", None)
@@ -1236,9 +1248,9 @@ if "_stm_results" in st.session_state:
         st.dataframe(pd.DataFrame(recs), use_container_width=True,
                      hide_index=True)
 
-    t1, t2, t6, t3, t7, t4, t8, t5 = st.tabs([
+    t1, t2, t6, t_loads, t3, t7, t4, t8, t5 = st.tabs([
         "📊 Plan", "📈 Elevation", "🎲 3D View",
-        "🔩 Bottom Rebar", "🪟 Top Rebar",
+        "📥 Loads", "🔩 Bottom Rebar", "🪟 Top Rebar",
         "⚓ Anchor", "🧱 Pile Forces", "📋 Detail"])
 
     with t1:
@@ -1313,6 +1325,150 @@ if "_stm_results" in st.session_state:
                 "from cut equilibrium of local strut components. Use the "
                 "Design Force Summary for governing bottom reinforcement.")
     
+    with t_loads:
+        import pandas as _pd_loads
+
+        st.markdown("### Load Cases")
+
+        # ── ULS ──────────────────────────────────────────────────────────
+        st.markdown("#### 🔴 ULS — Ultimate Limit State")
+        st.caption(
+            "ใช้สำหรับออกแบบเหล็กเสริม Pile Cap (STM) และเหล็กเสริมเสาเข็ม (PMM) "
+            "| Pu, Mux, Muy สำหรับ pile reactions  |  Hux, Huy กระจายลงเสาเข็มเท่ากัน n ต้น")
+
+        _uls_cases = st.session_state.get("load_cases_uls",
+                                          DEFAULTS["load_cases_uls"])
+        _uls_df = _pd_loads.DataFrame([{
+            "Case": c.get("name", "ULS"),
+            "Pu (kN)":   float(c.get("Pu",  0.0)),
+            "Mux (kN·m)": float(c.get("Mux", 0.0)),
+            "Muy (kN·m)": float(c.get("Muy", 0.0)),
+            "Hux (kN)":  float(c.get("Hux", 0.0)),
+            "Huy (kN)":  float(c.get("Huy", 0.0)),
+        } for c in _uls_cases])
+
+        _edited_uls = st.data_editor(
+            _uls_df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="uls_data_editor",
+            column_config={
+                "Case":       st.column_config.TextColumn("Case Name", width="small"),
+                "Pu (kN)":    st.column_config.NumberColumn(format="%.1f"),
+                "Mux (kN·m)": st.column_config.NumberColumn(format="%.1f"),
+                "Muy (kN·m)": st.column_config.NumberColumn(format="%.1f"),
+                "Hux (kN)":   st.column_config.NumberColumn(format="%.1f"),
+                "Huy (kN)":   st.column_config.NumberColumn(format="%.1f"),
+            })
+
+        # Store back to session state
+        _new_uls = []
+        for _, _r in _edited_uls.iterrows():
+            _new_uls.append({
+                "name": str(_r.get("Case", "ULS")),
+                "Pu":  float(_r.get("Pu (kN)",   0.0) or 0.0),
+                "Mux": float(_r.get("Mux (kN·m)", 0.0) or 0.0),
+                "Muy": float(_r.get("Muy (kN·m)", 0.0) or 0.0),
+                "Hux": float(_r.get("Hux (kN)",  0.0) or 0.0),
+                "Huy": float(_r.get("Huy (kN)",  0.0) or 0.0),
+            })
+        if _new_uls:
+            st.session_state["load_cases_uls"] = _new_uls
+
+        # Active case selector
+        _case_names = [c["name"] for c in _new_uls] if _new_uls else ["ULS-1"]
+        _cur_idx = int(st.session_state.get("active_uls_idx", 0))
+        _cur_idx = min(_cur_idx, len(_case_names) - 1)
+        _sel = st.radio(
+            "✅ Active ULS case (ใช้คำนวณ STM และออกแบบ):",
+            _case_names, index=_cur_idx, horizontal=True,
+            key="active_uls_radio")
+        st.session_state["active_uls_idx"] = _case_names.index(_sel)
+
+        _ac = _new_uls[st.session_state["active_uls_idx"]] if _new_uls else {}
+        _c1, _c2, _c3, _c4, _c5 = st.columns(5)
+        _c1.metric("Pu (kN)",    "{:.0f}".format(_ac.get("Pu",  0.0)))
+        _c2.metric("Mux (kN·m)", "{:.0f}".format(_ac.get("Mux", 0.0)))
+        _c3.metric("Muy (kN·m)", "{:.0f}".format(_ac.get("Muy", 0.0)))
+        _c4.metric("Hux (kN)",   "{:.0f}".format(_ac.get("Hux", 0.0)))
+        _c5.metric("Huy (kN)",   "{:.0f}".format(_ac.get("Huy", 0.0)))
+
+        st.divider()
+
+        # ── SLS ──────────────────────────────────────────────────────────
+        st.markdown("#### 🔵 SLS — Serviceability Limit State")
+        st.caption(
+            "ใช้สำหรับตรวจสอบกำลังรับน้ำหนักเสาเข็ม (Geotechnical capacity) "
+            "| P_i(SLS) เทียบกับ Q_allow ของเสาเข็มแต่ละต้น")
+
+        _sls_cases = st.session_state.get("load_cases_sls",
+                                          DEFAULTS["load_cases_sls"])
+        _sls_df = _pd_loads.DataFrame([{
+            "Case":        c.get("name", "SLS"),
+            "P (kN)":     float(c.get("P",  0.0)),
+            "Mx (kN·m)":  float(c.get("Mx", 0.0)),
+            "My (kN·m)":  float(c.get("My", 0.0)),
+            "Hx (kN)":   float(c.get("Hx", 0.0)),
+            "Hy (kN)":   float(c.get("Hy", 0.0)),
+        } for c in _sls_cases])
+
+        _edited_sls = st.data_editor(
+            _sls_df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="sls_data_editor",
+            column_config={
+                "Case":       st.column_config.TextColumn("Case Name", width="small"),
+                "P (kN)":     st.column_config.NumberColumn(format="%.1f"),
+                "Mx (kN·m)":  st.column_config.NumberColumn(format="%.1f"),
+                "My (kN·m)":  st.column_config.NumberColumn(format="%.1f"),
+                "Hx (kN)":    st.column_config.NumberColumn(format="%.1f"),
+                "Hy (kN)":    st.column_config.NumberColumn(format="%.1f"),
+            })
+
+        _new_sls = []
+        for _, _r in _edited_sls.iterrows():
+            _new_sls.append({
+                "name": str(_r.get("Case", "SLS")),
+                "P":  float(_r.get("P (kN)",  0.0) or 0.0),
+                "Mx": float(_r.get("Mx (kN·m)", 0.0) or 0.0),
+                "My": float(_r.get("My (kN·m)", 0.0) or 0.0),
+                "Hx": float(_r.get("Hx (kN)", 0.0) or 0.0),
+                "Hy": float(_r.get("Hy (kN)", 0.0) or 0.0),
+            })
+        if _new_sls:
+            st.session_state["load_cases_sls"] = _new_sls
+
+        # SLS pile reactions for each case
+        if coords and _new_sls:
+            st.markdown("#### แรงที่เสาเข็มแต่ละต้น (SLS)")
+            from stm_calculations import compute_pile_reactions
+            _sls_pile_data = {}
+            for _sc in _new_sls:
+                try:
+                    _pl, _ = compute_pile_reactions(
+                        coords,
+                        float(_sc.get("P", 0.0)),
+                        float(_sc.get("Mx", 0.0)),
+                        float(_sc.get("My", 0.0)),
+                        return_info=True)
+                    _sls_pile_data[_sc["name"]] = _pl
+                except Exception:
+                    _sls_pile_data[_sc["name"]] = [None] * len(coords)
+
+            _sls_table = {"Pile": ["P{}".format(i+1) for i in range(len(coords))],
+                          "X (mm)": ["{:.0f}".format(c[0]) for c in coords],
+                          "Y (mm)": ["{:.0f}".format(c[1]) for c in coords]}
+            for _sc in _new_sls:
+                _pl = _sls_pile_data[_sc["name"]]
+                _sls_table["{}\nP_i (kN)".format(_sc["name"])] = [
+                    "{:.1f}".format(v) if v is not None else "—" for v in _pl]
+
+            st.dataframe(_pd_loads.DataFrame(_sls_table),
+                         use_container_width=True, hide_index=True)
+            st.caption("⚠️ P_i(SLS) คือแรงแนวแกนจาก P, Mx, My เท่านั้น "
+                       "ไม่รวม W_cap — หากต้องการรวมน้ำหนักฐานให้บวก W_cap เข้าใน P ด้วย")
+
     with t3:
         st.markdown("### Required Reinforcement")
         st.caption(
@@ -1846,22 +2002,31 @@ As_min,bottom = ρ_min × Ag
                     use_container_width=True, hide_index=True)
 
     with t8:
-        st.markdown("### Pile Head Forces Below Pile Cap")
+        st.markdown("### Pile Head Forces Below Pile Cap (ULS)")
         st.caption(
-            "Forces are derived from the selected STM strut geometry. "
-            "Axial P_i is the rigid-cap pile reaction; H_x and H_y are the "
-            "signed horizontal components of each pile strut at the pile head.")
+            "แรงที่หัวเสาเข็มสำหรับ ULS — ใช้ออกแบบเหล็กเสริมเสาเข็ม (PMM interaction) "
+            "| Pu,i จาก Rigid Cap distribution  "
+            "| Hux,i และ Huy,i รวม 2 ส่วน: (1) STM strut geometry  (2) Hux/Huy กระจายเท่ากัน n ต้น")
         st.caption(
-            "Critical rows show concurrent actions from the same pile. They "
-            "are not an envelope combination of maximum values from different "
-            "piles.")
+            "Critical rows แสดงแรงที่เกิดพร้อมกันจากเสาเข็มต้นเดียว "
+            "ไม่ใช่ envelope จากต้นที่มีค่าสูงสุดคนละต้น")
+        _Hux_val = results.get("Hux_kN", 0.0)
+        _Huy_val = results.get("Huy_kN", 0.0)
+        _n_piles = len(results.get("struts", []))
         _formula_box(
-            "H_x,i = P_i(compression) x dx_i / d_eff\n"
-            "H_y,i = P_i(compression) x dy_i / d_eff\n"
-            "H_res,i = sqrt(H_x,i^2 + H_y,i^2)\n"
-            "F_strut,i = P_i(compression) x L_strut,i / d_eff\n\n"
-            "Sign convention: +H_x / +H_y follows the direction from the "
-            "selected top compression node toward the pile head.")
+            "Hux,i (strut)  = Pu,i(compression) × dxi / d_eff\n"
+            "Huy,i (strut)  = Pu,i(compression) × dyi / d_eff\n"
+            "Hux,i (direct) = Hux / n  =  {:.1f} / {} = {:.1f} kN/pile\n"
+            "Huy,i (direct) = Huy / n  =  {:.1f} / {} = {:.1f} kN/pile\n"
+            "Hux,i (total)  = Hux,i(strut) + Hux,i(direct)\n"
+            "Huy,i (total)  = Huy,i(strut) + Huy,i(direct)\n"
+            "Hu,res,i       = sqrt(Hux,i² + Huy,i²)\n\n"
+            "Sign convention: +Hux / +Huy follows the direction from the "
+            "selected top compression node toward the pile head.".format(
+                _Hux_val, _n_piles,
+                _Hux_val / _n_piles if _n_piles else 0.0,
+                _Huy_val, _n_piles,
+                _Huy_val / _n_piles if _n_piles else 0.0))
 
         pile_force_rows, pile_force_summary = _pile_head_force_rows(results)
         if pile_force_summary:
@@ -1888,6 +2053,7 @@ As_min,bottom = ρ_min × Ag
     inputs_dict = {
         "fc": fc, "fy": fy, "cover": cover,
         "Pu": Pu, "Mux": Mux, "Muy": Muy,
+        "Hux": Hux, "Huy": Huy,
         "W_cap_kN": results["W_cap_kN"],
         "W_cap_nom_kN": _cap_area_m2(cap_polygon, cap_lx, cap_ly) * (h_cap/1000.0) * 24.0,
         "wcap_uls_factor": st.session_state.wcap_uls_factor,
