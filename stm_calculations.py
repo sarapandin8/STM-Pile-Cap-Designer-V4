@@ -505,12 +505,20 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
                cover=75.0, beta_s=0.75, W_cap_kN=0.0,
                fy_x=None, fy_y=None, x_bar_size=None, y_bar_size=None,
                cap_lx_mm=None, cap_ly_mm=None,
-               stm_model_type="Point Column STM"):
+               stm_model_type="Point Column STM",
+               Hux_kN=0.0, Huy_kN=0.0):
     """STM design per ACI 318-19 Ch. 23. No separate punching/beam shear
        check (per ACI §13.4.6.3 — covered by strut & node strength).
        W_cap_kN: self-weight of pile cap (kN), added to Pu for pile reactions.
        Note: W_cap is NOT included in column node check (col_DCR) because
-       cap self-weight is distributed load, not transmitted through column."""
+       cap self-weight is distributed load, not transmitted through column.
+
+       Hux_kN / Huy_kN are external lateral shears applied to the pile cap.
+       They are distributed to pile heads as direct pile-head shear only.
+       The horizontal components of STM diagonal struts remain internal tie
+       forces in the pile cap and are NOT added to pile-head shear exported
+       for soil-spring / pile lateral analysis.
+    """
     n = len(coords)
     if n < 2:
         return {"error": "Need at least 2 piles."}
@@ -549,6 +557,12 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     if d_eff <= 0:
         return {"error": "Effective depth <= 0. Increase cap thickness."}
 
+    # External lateral shears are shared equally by default.  This is a
+    # direct pile-head shear transfer model and intentionally excludes the
+    # internal horizontal components of STM compression struts.
+    hx_direct_per_pile = float(Hux_kN) / n if n else 0.0
+    hy_direct_per_pile = float(Huy_kN) / n if n else 0.0
+
     struts = []
     for i, (x, y) in enumerate(coords):
         Pi = max(0.0, pile_loads[i])  # uplift handled separately
@@ -560,8 +574,22 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
         L_s = math.hypot(L_h, d_eff)
         th = math.degrees(math.atan2(d_eff, L_h)) if L_h > 0 else 90.0
         F_s = Pi * (L_s/d_eff)
-        F_tx = Pi * abs(dx)/d_eff
-        F_ty = Pi * abs(dy)/d_eff
+
+        # Internal STM tie components used for pile-cap reinforcement.
+        # Signed values preserve equilibrium direction; absolute values are
+        # retained for existing tie-force design and visualization logic.
+        F_tx_signed = Pi * dx / d_eff
+        F_ty_signed = Pi * dy / d_eff
+        F_tx = abs(F_tx_signed)
+        F_ty = abs(F_ty_signed)
+
+        # Pile-head shear for downstream soil-spring / pile lateral analysis.
+        # Do NOT add F_tx_signed / F_ty_signed here; those are internal pile-cap
+        # tie forces, not external lateral load transferred to the pile shaft.
+        hx_pile_head = hx_direct_per_pile
+        hy_pile_head = hy_direct_per_pile
+        h_pile_head_res = math.hypot(hx_pile_head, hy_pile_head)
+
         struts.append({
             "coord": (x, y), "P_i_kN": pile_loads[i],
             "column_coord": (node_x, node_y),
@@ -572,6 +600,25 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
             "L_h": L_h, "L_strut": L_s, "theta_deg": th,
             "F_strut_kN": F_s,
             "F_tie_x_kN": F_tx, "F_tie_y_kN": F_ty,
+            "F_tie_x_signed_kN": F_tx_signed,
+            "F_tie_y_signed_kN": F_ty_signed,
+            "H_x_tie_internal_kN": F_tx_signed,
+            "H_y_tie_internal_kN": F_ty_signed,
+            "H_x_direct_pile_head_kN": hx_direct_per_pile,
+            "H_y_direct_pile_head_kN": hy_direct_per_pile,
+            "H_x_pile_head_for_soil_spring_kN": hx_pile_head,
+            "H_y_pile_head_for_soil_spring_kN": hy_pile_head,
+            "H_res_pile_head_for_soil_spring_kN": h_pile_head_res,
+            # Backward-compatible aliases.  These names are kept so older UI
+            # tables do not crash, but the corrected app reads the explicit
+            # *_pile_head_for_soil_spring fields above.
+            "H_x_strut_kN": F_tx_signed,
+            "H_y_strut_kN": F_ty_signed,
+            "H_x_direct_kN": hx_direct_per_pile,
+            "H_y_direct_kN": hy_direct_per_pile,
+            "H_x_total_kN": hx_pile_head,
+            "H_y_total_kN": hy_pile_head,
+            "H_res_total_kN": h_pile_head_res,
         })
 
     # Use Σ horizontal strut components per controlling side.
@@ -675,6 +722,12 @@ def stm_design(coords, Pu, Mux, Muy, fc, fy, D, col, h_cap,
     return {
         "n_piles": n,
         "Pu_kN": Pu, "Mux_kNm": Mux, "Muy_kNm": Muy,
+        "Hux_kN": float(Hux_kN), "Huy_kN": float(Huy_kN),
+        "pile_head_lateral_distribution": "EQUAL_DIRECT_SHEAR_ONLY",
+        "pile_head_lateral_note": (
+            "Hux/Huy are distributed equally to pile heads as direct lateral "
+            "shear. Internal STM horizontal strut components are used for "
+            "pile-cap tie reinforcement and are not exported as pile-head shear."),
         "W_cap_kN": W_cap_kN,
         "Pu_total_kN": Pu_total,
         "pile_loads_kN": pile_loads,

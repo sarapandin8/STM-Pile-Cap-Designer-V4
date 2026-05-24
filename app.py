@@ -226,27 +226,33 @@ def _strut_force_rows(results):
 
 
 def _pile_head_force_rows(results):
-    """Return pile-head actions transferred from the pile cap STM model.
-    H_x_total = strut component + Hux/n (direct lateral)
-    H_y_total = strut component + Huy/n (direct lateral)
+    """Return pile-head actions for downstream soil-spring analysis.
+
+    Important engineering convention:
+    - Pu,i is the rigid-cap vertical reaction.
+    - Hux,i / Huy,i exported to the soil-spring app are the DIRECT external
+      lateral shear share only (default Hux/n, Huy/n).
+    - STM diagonal-strut horizontal components are internal pile-cap tie
+      forces. They are shown for traceability but are NOT added to pile-head
+      shear.
     """
     data = []
     rows = []
     struts = results.get("struts", [])
-    n = len(struts)
     for i, s in enumerate(struts, 1):
         pile_x, pile_y = s.get("coord", (0.0, 0.0))
         node_x, node_y = s.get("column_coord", (0.0, 0.0))
-        axial        = float(s.get("P_i_kN", 0.0))
-        hx_strut     = float(s.get("H_x_strut_kN",  0.0))
-        hy_strut     = float(s.get("H_y_strut_kN",  0.0))
-        hx_direct    = float(s.get("H_x_direct_kN", 0.0))
-        hy_direct    = float(s.get("H_y_direct_kN", 0.0))
-        hx           = float(s.get("H_x_total_kN",  hx_strut + hx_direct))
-        hy           = float(s.get("H_y_total_kN",  hy_strut + hy_direct))
-        h_res        = float(s.get("H_res_total_kN", math.hypot(hx, hy)))
-        strut_force  = float(s.get("F_strut_kN", 0.0))
-        theta        = float(s.get("theta_deg", 0.0))
+        axial = float(s.get("P_i_kN", 0.0))
+
+        hx_internal = float(s.get("H_x_tie_internal_kN", s.get("F_tie_x_signed_kN", 0.0)))
+        hy_internal = float(s.get("H_y_tie_internal_kN", s.get("F_tie_y_signed_kN", 0.0)))
+        hx_direct = float(s.get("H_x_direct_pile_head_kN", s.get("H_x_direct_kN", 0.0)))
+        hy_direct = float(s.get("H_y_direct_pile_head_kN", s.get("H_y_direct_kN", 0.0)))
+        hx = float(s.get("H_x_pile_head_for_soil_spring_kN", hx_direct))
+        hy = float(s.get("H_y_pile_head_for_soil_spring_kN", hy_direct))
+        h_res = float(s.get("H_res_pile_head_for_soil_spring_kN", math.hypot(hx, hy)))
+        strut_force = float(s.get("F_strut_kN", 0.0))
+        theta = float(s.get("theta_deg", 0.0))
         note = "Compression pile"
         if axial < -1e-3:
             note = "Uplift/tension pile - strut ignored in STM"
@@ -258,71 +264,70 @@ def _pile_head_force_rows(results):
             "node_x": node_x, "node_y": node_y,
             "axial": axial,
             "hx": hx, "hy": hy, "h_res": h_res,
-            "hx_strut": hx_strut, "hy_strut": hy_strut,
+            "hx_internal": hx_internal, "hy_internal": hy_internal,
             "hx_direct": hx_direct, "hy_direct": hy_direct,
             "strut": strut_force, "theta": theta, "note": note,
         }
         data.append(item)
         rows.append({
-            "Pile":                  item["pile"],
-            "X (mm)":               "{:.0f}".format(pile_x),
-            "Y (mm)":               "{:.0f}".format(pile_y),
-            "Top node X (mm)":      "{:.0f}".format(node_x),
-            "Top node Y (mm)":      "{:.0f}".format(node_y),
-            "Pu,i (kN)":           "{:.1f}".format(axial),
-            "Hux,i strut (kN)":    "{:.1f}".format(hx_strut),
-            "Hux,i direct (kN)":   "{:.1f}".format(hx_direct),
-            "Hux,i total (kN)":    "{:.1f}".format(hx),
-            "Huy,i strut (kN)":    "{:.1f}".format(hy_strut),
-            "Huy,i direct (kN)":   "{:.1f}".format(hy_direct),
-            "Huy,i total (kN)":    "{:.1f}".format(hy),
-            "Hu,res,i (kN)":       "{:.1f}".format(h_res),
-            "F_strut (kN)":        "{:.1f}".format(strut_force),
-            "θ (deg)":             "{:.1f}".format(theta),
-            "Note":                note,
+            "Pile": item["pile"],
+            "X (mm)": "{:.0f}".format(pile_x),
+            "Y (mm)": "{:.0f}".format(pile_y),
+            "Top node X (mm)": "{:.0f}".format(node_x),
+            "Top node Y (mm)": "{:.0f}".format(node_y),
+            "Pu,i (kN)": "{:.1f}".format(axial),
+            "Hux,i for Soil Spring (kN)": "{:.1f}".format(hx),
+            "Huy,i for Soil Spring (kN)": "{:.1f}".format(hy),
+            "Hu,res,i for Soil Spring (kN)": "{:.1f}".format(h_res),
+            "Internal STM tie X (kN)": "{:.1f}".format(hx_internal),
+            "Internal STM tie Y (kN)": "{:.1f}".format(hy_internal),
+            "F_strut (kN)": "{:.1f}".format(strut_force),
+            "θ (deg)": "{:.1f}".format(theta),
+            "Note": note,
         })
 
     summary = []
     if data:
         def _summary_row(action, item, use_for):
             return {
-                "Critical case":           action,
-                "Pile":                    item["pile"],
-                "Pu,i (kN)":              "{:.1f}".format(item["axial"]),
-                "Hux,i concurrent (kN)":  "{:.1f}".format(item["hx"]),
-                "Huy,i concurrent (kN)":  "{:.1f}".format(item["hy"]),
-                "Hu,res,i (kN)":          "{:.1f}".format(item["h_res"]),
-                "F_strut (kN)":           "{:.1f}".format(item["strut"]),
-                "θ (deg)":                "{:.1f}".format(item["theta"]),
-                "Use for":                use_for,
+                "Critical case": action,
+                "Pile": item["pile"],
+                "Pu,i (kN)": "{:.1f}".format(item["axial"]),
+                "Hux,i for Soil Spring (kN)": "{:.1f}".format(item["hx"]),
+                "Huy,i for Soil Spring (kN)": "{:.1f}".format(item["hy"]),
+                "Hu,res,i (kN)": "{:.1f}".format(item["h_res"]),
+                "Internal STM tie X/Y (kN)": "{:.1f} / {:.1f}".format(item["hx_internal"], item["hy_internal"]),
+                "F_strut (kN)": "{:.1f}".format(item["strut"]),
+                "θ (deg)": "{:.1f}".format(item["theta"]),
+                "Use for": use_for,
             }
 
-        max_comp   = max(data, key=lambda it: it["axial"])
-        min_axial  = min(data, key=lambda it: it["axial"])
-        max_h      = max(data, key=lambda it: it["h_res"])
-        max_hx     = max(data, key=lambda it: abs(it["hx"]))
-        max_hy     = max(data, key=lambda it: abs(it["hy"]))
-        max_strut  = max(data, key=lambda it: it["strut"])
+        max_comp = max(data, key=lambda it: it["axial"])
+        min_axial = min(data, key=lambda it: it["axial"])
+        max_h = max(data, key=lambda it: it["h_res"])
+        max_hx = max(data, key=lambda it: abs(it["hx"]))
+        max_hy = max(data, key=lambda it: abs(it["hy"]))
+        max_strut = max(data, key=lambda it: it["strut"])
 
         summary.append(_summary_row(
             "Max axial compression", max_comp,
-            "Pile axial compression with concurrent pile-head shear"))
+            "Pile axial compression with concurrent direct pile-head shear"))
         min_label = (
             "Min axial / max tension"
             if min_axial["axial"] < -1e-3
             else "Min axial compression")
         summary.append(_summary_row(
             min_label, min_axial,
-            "Minimum compression or tension case with concurrent shear"))
+            "Minimum compression or tension case with concurrent direct shear"))
         summary.extend([
             _summary_row("Max horizontal resultant", max_h,
-                         "Pile-head shear resultant with concurrent axial force"),
+                         "Direct pile-head shear resultant for Soil Spring App"),
             _summary_row("Max |Hux|", max_hx,
-                         "X-direction pile-head shear with concurrent axial force"),
+                         "X-direction direct pile-head shear for Soil Spring App"),
             _summary_row("Max |Huy|", max_hy,
-                         "Y-direction pile-head shear with concurrent axial force"),
+                         "Y-direction direct pile-head shear for Soil Spring App"),
             _summary_row("Max strut compression", max_strut,
-                         "Pile-head compression bearing / STM node"),
+                         "Pile-cap STM compression strut / node check only"),
         ])
     return rows, summary
 
@@ -1021,7 +1026,7 @@ with st.sidebar:
     with st.expander("🔴 ULS — Ultimate Limit State", expanded=True):
         st.caption(
             "ใช้สำหรับออกแบบเหล็กเสริม Pile Cap (STM) และเหล็กเสริมเสาเข็ม (PMM) "
-            "| Pu, Mux, Muy → pile reactions  |  Hux, Huy → กระจายเท่ากัน n ต้น")
+            "| Pu, Mux, Muy → pile reactions  |  Hux, Huy → direct shear share H/n")
         _uls_cases_in = st.session_state.get(
             "load_cases_uls", DEFAULTS["load_cases_uls"])
         _uls_df = _pd_loads.DataFrame([{
@@ -1985,11 +1990,10 @@ As_min,bottom = ρ_min × Ag
                     use_container_width=True, hide_index=True)
 
     with t8:
-        st.markdown("### Pile Head Forces Below Pile Cap (ULS)")
+        st.markdown("### Pile Forces for Soil Spring App (ULS)")
         st.caption(
-            "แรงที่หัวเสาเข็มสำหรับ ULS — ใช้ออกแบบเหล็กเสริมเสาเข็ม (PMM interaction) "
-            "| Pu,i จาก Rigid Cap distribution  "
-            "| Hux,i และ Huy,i รวม 2 ส่วน: (1) STM strut geometry  (2) Hux/Huy กระจายเท่ากัน n ต้น")
+            "แรงที่ส่งต่อไป Soil Spring App — Pu,i จาก Rigid Cap distribution; "
+            "Hux,i และ Huy,i เป็น direct lateral shear share เท่านั้น ไม่รวม internal STM tie component")
         st.caption(
             "Critical rows แสดงแรงที่เกิดพร้อมกันจากเสาเข็มต้นเดียว "
             "ไม่ใช่ envelope จากต้นที่มีค่าสูงสุดคนละต้น")
@@ -1997,15 +2001,15 @@ As_min,bottom = ρ_min × Ag
         _Huy_val = results.get("Huy_kN", 0.0)
         _n_piles = len(results.get("struts", []))
         _formula_box(
-            "Hux,i (strut)  = Pu,i(compression) × dxi / d_eff\n"
-            "Huy,i (strut)  = Pu,i(compression) × dyi / d_eff\n"
-            "Hux,i (direct) = Hux / n  =  {:.1f} / {} = {:.1f} kN/pile\n"
-            "Huy,i (direct) = Huy / n  =  {:.1f} / {} = {:.1f} kN/pile\n"
-            "Hux,i (total)  = Hux,i(strut) + Hux,i(direct)\n"
-            "Huy,i (total)  = Huy,i(strut) + Huy,i(direct)\n"
-            "Hu,res,i       = sqrt(Hux,i² + Huy,i²)\n\n"
-            "Sign convention: +Hux / +Huy follows the direction from the "
-            "selected top compression node toward the pile head.".format(
+            "Pile-head shear exported to Soil Spring App:\n"
+            "Hux,i = Hux / n = {:.1f} / {} = {:.1f} kN/pile\n"
+            "Huy,i = Huy / n = {:.1f} / {} = {:.1f} kN/pile\n"
+            "Hu,res,i = sqrt(Hux,i² + Huy,i²)\n\n"
+            "Internal STM tie components, NOT exported as pile-head shear:\n"
+            "Txi,internal = Pu,i(compression) × dxi / d_eff\n"
+            "Tyi,internal = Pu,i(compression) × dyi / d_eff\n\n"
+            "Engineering note: STM horizontal strut components are used for pile-cap tie reinforcement; "
+            "they are not added to external pile-head shear.".format(
                 _Hux_val, _n_piles,
                 _Hux_val / _n_piles if _n_piles else 0.0,
                 _Huy_val, _n_piles,
@@ -2024,11 +2028,11 @@ As_min,bottom = ρ_min × Ag
                 pd.DataFrame(pile_force_rows),
                 use_container_width=True, hide_index=True)
             st.info(
-                "Use `Axial P_i` together with `H resultant` or directional "
-                "`H_x/H_y` for preliminary pile-head reinforcement design. "
-                "Pile-head moment is not calculated here because it depends "
-                "on pile fixity, embedment, connection detailing, and soil/"
-                "substructure stiffness assumptions.")
+                "Use `Pu,i` together with `Hux,i/Huy,i for Soil Spring` for "
+                "downstream pile lateral analysis. Do not use the internal STM "
+                "tie components as pile-head shear. Pile-head moment is not "
+                "calculated here because it depends on pile fixity, embedment, "
+                "connection detailing, and soil/substructure stiffness assumptions.")
 
     # Export Report
     st.divider()

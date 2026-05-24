@@ -814,6 +814,43 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
         rr.font.color.rgb = RGBColor(0xC6, 0x28, 0x28)
         rr.bold = True
 
+    doc.add_heading('2.3 Pile Forces for Soil Spring App', level=2)
+    p = doc.add_paragraph()
+    p.add_run('Engineering convention: ').bold = True
+    p.add_run(
+        'Hux/Huy are distributed to pile heads as direct lateral shear only. '
+        'Internal STM horizontal strut components are used for pile-cap tie '
+        'reinforcement and are not added to pile-head shear.')
+    _n = max(1, int(results.get('n_piles', len(results.get('struts', [])) or 1)))
+    p = doc.add_paragraph()
+    p.add_run('Direct shear share: ').bold = True
+    p.add_run('Hux,i = Hux/n = {:.1f}/{} = {:.1f} kN; '
+              'Huy,i = Huy/n = {:.1f}/{} = {:.1f} kN'.format(
+                  inputs.get('Hux', 0.0), _n, inputs.get('Hux', 0.0)/_n,
+                  inputs.get('Huy', 0.0), _n, inputs.get('Huy', 0.0)/_n))
+    _ph_rows = []
+    for i, s in enumerate(results.get('struts', []), 1):
+        hx = s.get('H_x_pile_head_for_soil_spring_kN',
+                   s.get('H_x_direct_pile_head_kN', s.get('H_x_direct_kN', 0.0)))
+        hy = s.get('H_y_pile_head_for_soil_spring_kN',
+                   s.get('H_y_direct_pile_head_kN', s.get('H_y_direct_kN', 0.0)))
+        hres = s.get('H_res_pile_head_for_soil_spring_kN',
+                     (float(hx)**2 + float(hy)**2)**0.5)
+        _ph_rows.append([
+            'P{}'.format(i),
+            '{:.1f}'.format(s.get('P_i_kN', 0.0)),
+            '{:.1f}'.format(hx),
+            '{:.1f}'.format(hy),
+            '{:.1f}'.format(hres),
+            '{:.1f}'.format(s.get('H_x_tie_internal_kN', s.get('F_tie_x_signed_kN', 0.0))),
+            '{:.1f}'.format(s.get('H_y_tie_internal_kN', s.get('F_tie_y_signed_kN', 0.0))),
+        ])
+    if _ph_rows:
+        _make_table(doc, ['Pile', 'Pu,i (kN)', 'Hux,i soil spring (kN)',
+                          'Huy,i soil spring (kN)', 'Hu,res (kN)',
+                          'Internal STM tie X (kN)',
+                          'Internal STM tie Y (kN)'], _ph_rows)
+
     # 3. STM Analysis
     doc.add_heading('3. Strut-and-Tie Analysis', level=1)
     p = doc.add_paragraph()
