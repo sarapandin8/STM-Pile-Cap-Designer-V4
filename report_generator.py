@@ -117,6 +117,52 @@ def _format_spacing(value):
     return "{:.0f}".format(value)
 
 
+def _compute_pile_reactions_for_report(coords, Pu, Mux_kNm, Muy_kNm, load_point=(0.0, 0.0)):
+    """Rigid-cap pile reaction distribution used for SLS report tables."""
+    n = len(coords)
+    if n == 0:
+        return []
+    load_x, load_y = load_point
+    cx = sum(c[0] for c in coords) / n
+    cy = sum(c[1] for c in coords) / n
+    rel = [(x - cx, y - cy) for x, y in coords]
+    sum_x2 = sum(x*x for x, _ in rel)
+    sum_y2 = sum(y*y for _, y in rel)
+    mux_eff = float(Mux_kNm) * 1000.0 + float(Pu) * (float(load_y) - cy)
+    muy_eff = float(Muy_kNm) * 1000.0 + float(Pu) * (float(load_x) - cx)
+    out = []
+    for x_rel, y_rel in rel:
+        p = float(Pu) / n
+        if sum_y2 > 1e-6:
+            p += mux_eff * y_rel / sum_y2
+        if sum_x2 > 1e-6:
+            p += muy_eff * x_rel / sum_x2
+        out.append(p)
+    return out
+
+
+def _sls_pile_capacity_rows(inputs, results):
+    """Return vertical-only SLS pile demand rows and governing compression."""
+    coords = inputs.get('coords', [])
+    sls_cases = inputs.get('load_cases_sls', []) or []
+    wcap_nom = float(inputs.get('W_cap_nom_kN', 0.0))
+    col_x, col_y = _col_pos(inputs.get('col_size', {}))
+    rows = []
+    gov = None
+    for sc in sls_cases:
+        case = str(sc.get('name', sc.get('Case', 'SLS')))
+        p_total = float(sc.get('P', sc.get('Pu', 0.0))) + wcap_nom
+        mx = float(sc.get('Mx', sc.get('Mux', 0.0)))
+        my = float(sc.get('My', sc.get('Muy', 0.0)))
+        pile_ps = _compute_pile_reactions_for_report(coords, p_total, mx, my, load_point=(col_x, col_y))
+        for i, (coord, pval) in enumerate(zip(coords, pile_ps), 1):
+            rows.append([case, 'P{}'.format(i), '{:.0f}'.format(coord[0]),
+                         '{:.0f}'.format(coord[1]), '{:.1f}'.format(pval)])
+            if gov is None or pval > gov[0]:
+                gov = (pval, case, 'P{}'.format(i))
+    return rows, gov
+
+
 def _ensure_top_schedule_for_report(tr, inputs):
     if not tr:
         return tr
@@ -850,6 +896,44 @@ def generate_report(inputs, results, x_chk, y_chk, pairs,
                           'Huy,i soil spring (kN)', 'Hu,res (kN)',
                           'Internal STM tie X (kN)',
                           'Internal STM tie Y (kN)'], _ph_rows)
+
+    doc.add_heading('2.4 Pile Forces for SLS / Preliminary Allowable Pile Capacity', level=2)
+    p = doc.add_paragraph()
+    p.add_run('Purpose: ').bold = True
+    p.add_run(
+        'This table reports vertical service-level pile demand only. Hx/Hy/Hres are intentionally omitted because preliminary allowable pile capacity is normally checked against vertical service compression demand; lateral demand should be checked separately in the soil-spring/lateral pile workflow.')
+    p = doc.add_paragraph()
+    p.add_run('Convention: ').bold = True
+    p.add_run(
+        'If true SLS load combinations are available, use them directly. ULS/γeq is included only as a fallback screening estimate and should not replace actual SLS combinations for final design.')
+    _sls_rows, _sls_gov = _sls_pile_capacity_rows(inputs, results)
+    if _sls_rows:
+        _make_table(doc, ['Case', 'Pile', 'X (mm)', 'Y (mm)',
+                          'P_i,SLS incl. Wcap (kN)'], _sls_rows)
+        if _sls_gov:
+            p = doc.add_paragraph()
+            p.add_run('Preliminary required allowable compression capacity: ').bold = True
+            p.add_run('Q_allow ≥ {:.1f} kN/pile, governing {} / {}, based on SLS vertical demand including nominal cap self-weight.'.format(
+                _sls_gov[0], _sls_gov[1], _sls_gov[2]))
+    else:
+        doc.add_paragraph('No SLS load cases were provided.')
+
+    _gamma_eq = float(inputs.get('uls_to_sls_factor', 1.50) or 1.50)
+    _est_rows = []
+    _est_gov = None
+    for i, p_uls in enumerate(results.get('pile_loads_kN', []), 1):
+        p_est = float(p_uls) / max(_gamma_eq, 1e-9)
+        _est_rows.append(['Active ULS / γeq', 'P{}'.format(i),
+                          '{:.1f}'.format(p_uls), '{:.2f}'.format(_gamma_eq),
+                          '{:.1f}'.format(p_est)])
+        if _est_gov is None or p_est > _est_gov[0]:
+            _est_gov = (p_est, 'P{}'.format(i))
+    if _est_rows:
+        p = doc.add_paragraph()
+        p.add_run('Fallback estimate from active ULS: ').bold = True
+        p.add_run('Provided for screening only when true SLS combinations are not available.')
+        _make_table(doc, ['Basis', 'Pile', 'P_i,ULS (kN)', 'γeq',
+                          'Estimated P_i,SLS (kN)'], _est_rows)
 
     # 3. STM Analysis
     doc.add_heading('3. Strut-and-Tie Analysis', level=1)

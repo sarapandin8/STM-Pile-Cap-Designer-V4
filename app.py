@@ -2195,8 +2195,10 @@ As_min,bottom = ρ_min × Ag
         st.markdown("---")
         st.markdown("### Pile Forces for SLS / Preliminary Allowable Pile Capacity")
         st.caption(
-            "ใช้สำหรับประมาณ demand ระดับใช้งานของเสาเข็มรายต้นเพื่อเทียบกับ Q_allow. "
-            "ถ้ามี SLS load combinations จริง ให้ใช้ตาราง SLS โดยตรง; ค่า ULS/γeq เป็นเพียง estimate.")
+            "ใช้สำหรับประมาณ demand แนวดิ่งระดับใช้งานของเสาเข็มรายต้นเพื่อเทียบกับ Q_allow. "
+            "ตารางนี้จงใจแสดงเฉพาะแรงแนวดิ่ง P_i,SLS; แรง Hx/Hy เป็นคนละประเด็นสำหรับ lateral/soil-spring check.")
+        st.caption(
+            "ถ้ามี SLS load combinations จริง ให้ใช้ตาราง SLS โดยตรง; ค่า ULS/γeq เป็นเพียง screening estimate ไม่ใช่ SLS final.")
         try:
             _W_cap_nom_sls = _cap_area_m2(cap_polygon, cap_lx, cap_ly) * (h_cap/1000.0) * 24.0
             _sls_cases_pf = st.session_state.get("load_cases_sls", DEFAULTS["load_cases_sls"])
@@ -2210,19 +2212,13 @@ As_min,bottom = ρ_min × Ag
                     coords, _P_total_sls,
                     float(_sc.get("Mx", 0.0)), float(_sc.get("My", 0.0)),
                     load_point=(col_size["x"], col_size["y"]))
-                _hx_each = float(_sc.get("Hx", 0.0)) / len(coords) if coords else 0.0
-                _hy_each = float(_sc.get("Hy", 0.0)) / len(coords) if coords else 0.0
                 for _i, (_coord, _pval) in enumerate(zip(coords, _pl_sls), 1):
-                    _hres = math.hypot(_hx_each, _hy_each)
                     _row = {
                         "Case": _case,
                         "Pile": f"P{_i}",
                         "X (mm)": "{:.0f}".format(_coord[0]),
                         "Y (mm)": "{:.0f}".format(_coord[1]),
                         "P_i,SLS incl. Wcap (kN)": "{:.1f}".format(_pval),
-                        "H_x,SLS per pile (kN)": "{:.1f}".format(_hx_each),
-                        "H_y,SLS per pile (kN)": "{:.1f}".format(_hy_each),
-                        "H_res,SLS (kN)": "{:.1f}".format(_hres),
                     }
                     _sls_rows.append(_row)
                     if _max_sls_comp is None or _pval > _max_sls_comp:
@@ -2285,6 +2281,8 @@ As_min,bottom = ρ_min × Ag
         "cap_cx": cap_cx, "cap_cy": cap_cy,
         "cap_polygon": cap_polygon,
         "shape_label": shape_label,
+        "load_cases_sls": st.session_state.get("load_cases_sls", DEFAULTS["load_cases_sls"]),
+        "uls_to_sls_factor": st.session_state.get("uls_to_sls_factor", 1.50),
         "spacing_factor_x": spacing_factor_x,
         "spacing_factor_y": spacing_factor_y,
         "clear_min": st.session_state.clear_min,
