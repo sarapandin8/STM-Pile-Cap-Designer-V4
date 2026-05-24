@@ -922,7 +922,7 @@ if not _had_spacing_y:
 
 st.title("🏗️ STM Pile Cap Designer")
 st.caption("Strut-and-Tie Method - ACI 318-19 / CRSI Design Handbook")
-st.caption("Build 2026-05-24 | Load Cases first + Excel paste + SLS pile-force summary")
+st.caption("Build 2026-05-24 | Geometry first + Excel paste + SLS pile-force summary")
 
 # --------- Save / Load JSON ---------
 with st.sidebar:
@@ -1272,7 +1272,7 @@ with st.sidebar:
 
     st.divider()
 
-    # Load Cases and Calculate button are now shown in the first main tab.
+    # Geometry/Layout is the first main tab; Load Cases and Calculate button are shown in the second main tab.
     calc_btn = False
 
 
@@ -1282,7 +1282,7 @@ ok_sp, mn_sp, viol, mn_req, pairs = validate_pile_spacing(
 mn_clear = min((p[3] for p in pairs), default=0.0)
 
 # ===== Load Cases + Layout Tabs =====
-_setup_load_tab, _setup_plan_tab = st.tabs(["📥 Load Cases", "📊 Plan / Layout"])
+_setup_plan_tab, _setup_load_tab = st.tabs(["📐 Geometry / Layout", "📥 Load Cases"])
 with _setup_load_tab:
     calc_btn = _render_load_case_manager(DEFAULTS)
 
@@ -1527,8 +1527,8 @@ if "_stm_results" in st.session_state:
         st.dataframe(pd.DataFrame(recs), use_container_width=True,
                      hide_index=True)
 
-    t_loads, t1, t2, t6, t3, t7, t4, t8, t5 = st.tabs([
-        "📥 Load Cases", "📊 Plan", "📈 Elevation", "🎲 3D View",
+    t1, t2, t6, t3, t7, t4, t8, t5 = st.tabs([
+        "📊 STM Plan", "📈 STM Elevation", "🎲 STM 3D View",
         "🔩 Bottom Rebar", "🪟 Top Rebar",
         "⚓ Anchor", "🧱 Pile Forces", "📋 Detail"])
 
@@ -1604,17 +1604,6 @@ if "_stm_results" in st.session_state:
                 "from cut equilibrium of local strut components. Use the "
                 "Design Force Summary for governing bottom reinforcement.")
     
-    with t_loads:
-        st.markdown("### Load Cases Used in This Calculation")
-        st.caption("Load Cases are edited before calculation in the first main tab. This tab shows the current stored tables for review.")
-        st.markdown("#### ULS Cases")
-        st.dataframe(_uls_records_to_df(st.session_state.get("load_cases_uls", DEFAULTS["load_cases_uls"])),
-                     use_container_width=True, hide_index=True)
-        st.markdown("#### SLS Cases")
-        st.dataframe(_sls_records_to_df(st.session_state.get("load_cases_sls", DEFAULTS["load_cases_sls"])),
-                     use_container_width=True, hide_index=True)
-        st.info("SLS pile-force summary is shown in the 🧱 Pile Forces tab. Use true SLS combinations where possible; ULS/γeq is only an estimate.")
-
     with t3:
         st.markdown("### Required Reinforcement")
         st.caption(
@@ -2050,6 +2039,17 @@ As_min,bottom = ρ_min × Ag
             "ส่วนเหล็กบนในหน้านี้ใช้ครึ่งหนึ่งของ minimum gross-area ตามที่กำหนด")
 
     with t5:
+        st.markdown("### Input Review — Load Cases Used in This Calculation")
+        st.caption("Load Cases are edited in the upper 📥 Load Cases tab before calculation. This section is read-only for QA/review.")
+        st.markdown("#### ULS Cases")
+        st.dataframe(_uls_records_to_df(st.session_state.get("load_cases_uls", DEFAULTS["load_cases_uls"])),
+                     use_container_width=True, hide_index=True)
+        st.markdown("#### SLS Cases")
+        st.dataframe(_sls_records_to_df(st.session_state.get("load_cases_sls", DEFAULTS["load_cases_sls"])),
+                     use_container_width=True, hide_index=True)
+        st.info("SLS pile-force summary is shown in the 🧱 Pile Forces tab. Use true SLS combinations where possible; ULS/γeq is only an estimate.")
+        st.divider()
+
         st.markdown("### Strut Forces")
         rows = []
         for i, s in enumerate(results["struts"]):
