@@ -3,6 +3,7 @@ import importlib
 import math
 import streamlit as st
 import pandas as pd
+from io import BytesIO
 
 # Streamlit reruns app.py in the same Python process. Reload the local
 # calculation module so newly-added presets are visible without a server restart.
@@ -469,6 +470,105 @@ def _sls_records_to_df(cases):
     } for c in cases])
 
 
+
+def _dataframe_to_tsv(df):
+    """Return Excel-paste-friendly tab-separated text."""
+    if df is None or df.empty:
+        return ""
+    return df.to_csv(index=False, sep="\t")
+
+
+def _dataframes_to_xlsx(sheets):
+    """Create an in-memory Excel workbook from {sheet_name: dataframe}."""
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+        for name, df in sheets.items():
+            safe_name = str(name)[:31] or "Sheet1"
+            df.to_excel(writer, sheet_name=safe_name, index=False)
+            ws = writer.sheets[safe_name]
+            for col_i, col in enumerate(df.columns):
+                values = [str(col)] + [str(v) for v in df[col].head(200).tolist()]
+                width = min(max(len(v) for v in values) + 2, 42)
+                ws.set_column(col_i, col_i, width)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def _active_uls_case_name():
+    cases = st.session_state.get("load_cases_uls", DEFAULTS["load_cases_uls"])
+    if not cases:
+        return "ULS"
+    idx = min(int(st.session_state.get("active_uls_idx", 0)), len(cases) - 1)
+    return str(cases[idx].get("name", f"ULS-{idx+1}"))
+
+
+def _soil_spring_transfer_tables(results):
+    """Build paste/export tables for transferring ULS pile actions to the Soil Spring app.
+
+    The compact table is intentionally limited to the columns normally needed by
+    the downstream soil-spring load-case editor. The traceability table keeps
+    coordinates and internal STM force components so the exported forces remain
+    auditable.
+    """
+    case_name = _active_uls_case_name()
+    compact = []
+    trace = []
+    for i, s in enumerate(results.get("struts", []), 1):
+        pile = f"P{i}"
+        pile_x, pile_y = s.get("coord", (0.0, 0.0))
+        axial = float(s.get("P_i_kN", 0.0))
+        hx = float(s.get("H_x_pile_head_for_soil_spring_kN", s.get("H_x_direct_pile_head_kN", 0.0)))
+        hy = float(s.get("H_y_pile_head_for_soil_spring_kN", s.get("H_y_direct_pile_head_kN", 0.0)))
+        hres = math.hypot(hx, hy)
+        compact.append({
+            "Use": True,
+            "Load Case": f"{case_name}-{pile}",
+            "Pu [kN]": round(axial, 3),
+            "Hx [kN]": round(hx, 3),
+            "Hy [kN]": round(hy, 3),
+        })
+        trace.append({
+            "Source ULS Case": case_name,
+            "Pile": pile,
+            "X (mm)": round(float(pile_x), 3),
+            "Y (mm)": round(float(pile_y), 3),
+            "Pu,i [kN]": round(axial, 3),
+            "Hux,i for Soil Spring [kN]": round(hx, 3),
+            "Huy,i for Soil Spring [kN]": round(hy, 3),
+            "Hu,res,i [kN]": round(hres, 3),
+            "Internal STM tie X [kN]": round(float(s.get("H_x_tie_internal_kN", 0.0)), 3),
+            "Internal STM tie Y [kN]": round(float(s.get("H_y_tie_internal_kN", 0.0)), 3),
+            "F_strut [kN]": round(float(s.get("F_strut_kN", 0.0)), 3),
+            "theta [deg]": round(float(s.get("theta_deg", 0.0)), 3),
+            "Transfer Note": "Use Pu/Hx/Hy only. Internal STM tie components are not pile-head shear.",
+        })
+    return pd.DataFrame(compact), pd.DataFrame(trace)
+
+
+def _sls_vertical_transfer_table(coords, cap_polygon, cap_lx, cap_ly, h_cap, col_size):
+    """Build SLS vertical pile demand table for preliminary allowable capacity checks."""
+    w_cap_nom = _cap_area_m2(cap_polygon, cap_lx, cap_ly) * (h_cap / 1000.0) * 24.0
+    cases = st.session_state.get("load_cases_sls", DEFAULTS["load_cases_sls"])
+    rows = []
+    for sc in cases:
+        case = str(sc.get("name", "SLS"))
+        p_total = float(sc.get("P", 0.0)) + w_cap_nom
+        pile_loads = compute_pile_reactions(
+            coords, p_total,
+            float(sc.get("Mx", 0.0)), float(sc.get("My", 0.0)),
+            load_point=(col_size["x"], col_size["y"]))
+        for i, (coord, pval) in enumerate(zip(coords, pile_loads), 1):
+            rows.append({
+                "SLS Case": case,
+                "Pile": f"P{i}",
+                "X (mm)": round(float(coord[0]), 3),
+                "Y (mm)": round(float(coord[1]), 3),
+                "P_i,SLS incl. Wcap [kN]": round(float(pval), 3),
+                "Use for": "Preliminary Q_allow vertical compression demand",
+            })
+    return pd.DataFrame(rows)
+
+
 def _render_load_case_manager(defaults):
     """Render ULS/SLS load case tables and return True when Calculate is clicked."""
     st.subheader("📥 Load Cases")
@@ -922,7 +1022,7 @@ if not _had_spacing_y:
 
 st.title("🏗️ STM Pile Cap Designer")
 st.caption("Strut-and-Tie Method - ACI 318-19 / CRSI Design Handbook")
-st.caption("Build 2026-05-24 | Geometry first + Excel paste + SLS pile-force summary")
+st.caption("Build 2026-05-24 | Geometry first + Soil Spring transfer export")
 
 # --------- Save / Load JSON ---------
 with st.sidebar:
@@ -2192,6 +2292,33 @@ As_min,bottom = ρ_min × Ag
                 "calculated here because it depends on pile fixity, embedment, "
                 "connection detailing, and soil/substructure stiffness assumptions.")
 
+            _ss_compact_df, _ss_trace_df = _soil_spring_transfer_tables(results)
+            if not _ss_compact_df.empty:
+                st.markdown("#### Export / Transfer to Soil Spring App")
+                st.caption(
+                    "ตาราง Compact ด้านล่างจัดคอลัมน์ให้ paste เข้า Soil Spring App ได้ทันที "
+                    "ส่วน Traceability table เก็บค่าแรงภายใน STM ไว้ตรวจสอบย้อนหลัง")
+                with st.expander("Copy compact table for Soil Spring App", expanded=False):
+                    st.code(_dataframe_to_tsv(_ss_compact_df), language="text")
+                c_exp1, c_exp2 = st.columns(2)
+                with c_exp1:
+                    st.download_button(
+                        "⬇️ Download Soil Spring Input (.tsv)",
+                        data=_dataframe_to_tsv(_ss_compact_df),
+                        file_name="soil_spring_input_from_stm.tsv",
+                        mime="text/tab-separated-values",
+                        use_container_width=True)
+                with c_exp2:
+                    st.download_button(
+                        "⬇️ Download Transfer Workbook (.xlsx)",
+                        data=_dataframes_to_xlsx({
+                            "SoilSpring_Input": _ss_compact_df,
+                            "ULS_Traceability": _ss_trace_df,
+                        }),
+                        file_name="stm_to_soil_spring_transfer.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True)
+
         st.markdown("---")
         st.markdown("### Pile Forces for SLS / Preliminary Allowable Pile Capacity")
         st.caption(
@@ -2225,12 +2352,28 @@ As_min,bottom = ρ_min × Ag
                         _max_sls_comp = _pval
                         _max_sls_item = (_case, f"P{_i}")
             if _sls_rows:
-                st.dataframe(pd.DataFrame(_sls_rows), use_container_width=True, hide_index=True)
+                _sls_export_df = _sls_vertical_transfer_table(coords, cap_polygon, cap_lx, cap_ly, h_cap, col_size)
+                st.dataframe(_sls_export_df, use_container_width=True, hide_index=True)
                 if _max_sls_item:
                     st.success(
                         "Preliminary required allowable compression capacity ≥ {:.1f} kN/pile "
                         "from {} / {} (service demand incl. nominal cap self-weight).".format(
                             _max_sls_comp, _max_sls_item[0], _max_sls_item[1]))
+                c_sls1, c_sls2 = st.columns(2)
+                with c_sls1:
+                    st.download_button(
+                        "⬇️ Download SLS Vertical Demand (.tsv)",
+                        data=_dataframe_to_tsv(_sls_export_df),
+                        file_name="sls_vertical_pile_demand.tsv",
+                        mime="text/tab-separated-values",
+                        use_container_width=True)
+                with c_sls2:
+                    st.download_button(
+                        "⬇️ Download SLS Vertical Demand (.xlsx)",
+                        data=_dataframes_to_xlsx({"SLS_Vertical_Demand": _sls_export_df}),
+                        file_name="sls_vertical_pile_demand.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True)
             _gamma_eq = float(st.session_state.get("uls_to_sls_factor", 1.50))
             _uls_est_rows = []
             _max_est = None
