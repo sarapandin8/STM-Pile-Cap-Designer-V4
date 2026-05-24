@@ -332,6 +332,259 @@ def _pile_head_force_rows(results):
     return rows, summary
 
 
+def _to_float_load(value):
+    """Robust float parser for Excel-pasted load values."""
+    if value is None:
+        return 0.0
+    text = str(value).strip()
+    if text.lower() in ("", "nan", "none", "<na>"):
+        return 0.0
+    for token in (",", "kN", "KN", "kn", "kN-m", "kN·m", "KN-M", " "):
+        text = text.replace(token, "")
+    try:
+        return float(text)
+    except Exception:
+        return 0.0
+
+
+def _split_pasted_rows(text):
+    text = str(text or "").strip()
+    if not text:
+        return []
+    rows = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        sep = "\t" if "\t" in line else ","
+        rows.append([c.strip() for c in line.split(sep)])
+    return rows
+
+
+def _norm_load_header(h):
+    h = str(h or "").strip().lower()
+    for ch in [" ", "_", "-", "[", "]", "(", ")", "."]:
+        h = h.replace(ch, "")
+    h = h.replace("·", "")
+    return h
+
+
+def parse_load_cases_from_excel_text(text, mode="ULS"):
+    """Parse tab/comma separated Excel copy-paste into ULS or SLS load-case dicts.
+
+    ULS accepted columns: Case, Pu, Mux, Muy, Hux, Huy
+    SLS accepted columns: Case, P, Mx, My, Hx, Hy
+    Header row is optional. If no header is found, column order is assumed.
+    """
+    rows = _split_pasted_rows(text)
+    if not rows:
+        raise ValueError("No pasted data found.")
+    mode = str(mode).upper()
+    first = [_norm_load_header(c) for c in rows[0]]
+    if mode == "ULS":
+        aliases = {
+            "case": "Case", "loadcase": "Case", "lc": "Case", "name": "Case",
+            "pu": "Pu", "pukn": "Pu", "p": "Pu",
+            "mux": "Mux", "muxknm": "Mux", "mx": "Mux", "mxknm": "Mux",
+            "muy": "Muy", "muyknm": "Muy", "my": "Muy", "myknm": "Muy",
+            "hux": "Hux", "huxkn": "Hux", "hx": "Hux", "hxkn": "Hux",
+            "huy": "Huy", "huykn": "Huy", "hy": "Huy", "hykn": "Huy",
+        }
+        required = ["Pu", "Mux", "Muy", "Hux", "Huy"]
+        out_keys = ["Case", "Pu", "Mux", "Muy", "Hux", "Huy"]
+    else:
+        aliases = {
+            "case": "Case", "loadcase": "Case", "lc": "Case", "name": "Case",
+            "p": "P", "pkn": "P", "pu": "P", "pukn": "P",
+            "mx": "Mx", "mxknm": "Mx", "mux": "Mx", "muxknm": "Mx",
+            "my": "My", "myknm": "My", "muy": "My", "muyknm": "My",
+            "hx": "Hx", "hxkn": "Hx", "hux": "Hx", "huxkn": "Hx",
+            "hy": "Hy", "hykn": "Hy", "huy": "Hy", "huykn": "Hy",
+        }
+        required = ["P", "Mx", "My", "Hx", "Hy"]
+        out_keys = ["Case", "P", "Mx", "My", "Hx", "Hy"]
+
+    mapped = [aliases.get(h, "") for h in first]
+    has_header = any(mapped)
+    records = []
+    if has_header:
+        col_map = {name: i for i, name in enumerate(mapped) if name}
+        missing = [c for c in required if c not in col_map]
+        if missing:
+            raise ValueError("Header detected but missing columns: " + ", ".join(missing))
+        for r in rows[1:]:
+            rec = {}
+            for key in out_keys:
+                if key == "Case":
+                    rec[key] = r[col_map[key]].strip() if key in col_map and col_map[key] < len(r) else ""
+                else:
+                    rec[key] = _to_float_load(r[col_map[key]]) if col_map[key] < len(r) else 0.0
+            records.append(rec)
+    else:
+        # No header: allow 6 columns with Case or 5 numeric columns without Case.
+        for i, r in enumerate(rows, 1):
+            if len(r) >= 6:
+                vals = r[:6]
+                rec = {"Case": vals[0] or f"{mode}-{i}"}
+                for key, val in zip(out_keys[1:], vals[1:]):
+                    rec[key] = _to_float_load(val)
+            elif len(r) >= 5:
+                rec = {"Case": f"{mode}-{i}"}
+                for key, val in zip(out_keys[1:], r[:5]):
+                    rec[key] = _to_float_load(val)
+            else:
+                continue
+            records.append(rec)
+    # remove blank rows
+    clean = []
+    for i, rec in enumerate(records, 1):
+        nums = [abs(float(rec.get(k, 0.0))) for k in out_keys[1:]]
+        if not rec.get("Case"):
+            rec["Case"] = f"{mode}-{i}"
+        if any(v > 1e-12 for v in nums):
+            clean.append(rec)
+    if not clean:
+        raise ValueError("No usable load cases found.")
+    return clean
+
+
+def _uls_records_to_df(cases):
+    return pd.DataFrame([{
+        "Case": c.get("name", c.get("Case", "ULS")),
+        "Pu (kN)": float(c.get("Pu", 0.0)),
+        "Mux (kN·m)": float(c.get("Mux", 0.0)),
+        "Muy (kN·m)": float(c.get("Muy", 0.0)),
+        "Hux (kN)": float(c.get("Hux", 0.0)),
+        "Huy (kN)": float(c.get("Huy", 0.0)),
+    } for c in cases])
+
+
+def _sls_records_to_df(cases):
+    return pd.DataFrame([{
+        "Case": c.get("name", c.get("Case", "SLS")),
+        "P (kN)": float(c.get("P", 0.0)),
+        "Mx (kN·m)": float(c.get("Mx", 0.0)),
+        "My (kN·m)": float(c.get("My", 0.0)),
+        "Hx (kN)": float(c.get("Hx", 0.0)),
+        "Hy (kN)": float(c.get("Hy", 0.0)),
+    } for c in cases])
+
+
+def _render_load_case_manager(defaults):
+    """Render ULS/SLS load case tables and return True when Calculate is clicked."""
+    st.subheader("📥 Load Cases")
+    st.caption(
+        "Copy จาก Excel ได้โดยตรง: วางเป็นตารางแบบ tab-separated หรือ comma-separated. "
+        "Header ใช้ได้ทั้ง Case, Pu, Mux, Muy, Hux, Huy สำหรับ ULS และ Case, P, Mx, My, Hx, Hy สำหรับ SLS.")
+
+    col_u, col_s = st.columns(2)
+    with col_u:
+        st.markdown("#### 🔴 ULS — for STM Design")
+        with st.expander("Paste ULS cases from Excel", expanded=False):
+            sample = "Case\tPu\tMux\tMuy\tHux\tHuy\nULS-1\t5000\t0\t0\t100\t0"
+            st.code(sample, language="text")
+            txt = st.text_area("Paste ULS table here", height=130, key="paste_uls_cases")
+            if st.button("Import ULS table", key="btn_import_uls", use_container_width=True):
+                try:
+                    parsed = parse_load_cases_from_excel_text(txt, "ULS")
+                    st.session_state["load_cases_uls"] = [{
+                        "name": r["Case"], "Pu": r["Pu"], "Mux": r["Mux"],
+                        "Muy": r["Muy"], "Hux": r["Hux"], "Huy": r["Huy"]
+                    } for r in parsed]
+                    st.session_state["active_uls_idx"] = 0
+                    st.success(f"Imported {len(parsed)} ULS case(s).")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Import ULS failed: {exc}")
+
+        _uls_in = st.session_state.get("load_cases_uls", defaults["load_cases_uls"])
+        _uls_df = _uls_records_to_df(_uls_in)
+        _edited_uls = st.data_editor(
+            _uls_df, num_rows="dynamic", use_container_width=True,
+            key="uls_editor_main",
+            column_config={
+                "Case": st.column_config.TextColumn("Case Name", width="small"),
+                "Pu (kN)": st.column_config.NumberColumn(format="%.1f"),
+                "Mux (kN·m)": st.column_config.NumberColumn(format="%.1f"),
+                "Muy (kN·m)": st.column_config.NumberColumn(format="%.1f"),
+                "Hux (kN)": st.column_config.NumberColumn(format="%.1f"),
+                "Huy (kN)": st.column_config.NumberColumn(format="%.1f"),
+            })
+        _new_uls = []
+        for i, r in _edited_uls.iterrows():
+            name = str(r.get("Case", "")).strip() or f"ULS-{i+1}"
+            _new_uls.append({
+                "name": name,
+                "Pu": float(r.get("Pu (kN)", 0.0) or 0.0),
+                "Mux": float(r.get("Mux (kN·m)", 0.0) or 0.0),
+                "Muy": float(r.get("Muy (kN·m)", 0.0) or 0.0),
+                "Hux": float(r.get("Hux (kN)", 0.0) or 0.0),
+                "Huy": float(r.get("Huy (kN)", 0.0) or 0.0),
+            })
+        if _new_uls:
+            st.session_state["load_cases_uls"] = _new_uls
+        _case_names = [c["name"] for c in _new_uls] if _new_uls else ["ULS-1"]
+        _idx = min(int(st.session_state.get("active_uls_idx", 0)), len(_case_names) - 1)
+        _sel = st.radio("Active ULS case for STM calculation", _case_names,
+                        index=_idx, horizontal=True, key="active_uls_radio_main")
+        st.session_state["active_uls_idx"] = _case_names.index(_sel)
+
+    with col_s:
+        st.markdown("#### 🔵 SLS — for preliminary pile geotechnical demand")
+        st.warning(
+            "SLS ไม่ควรถอดจาก ULS แบบอัตโนมัติถ้าไม่รู้ load components. "
+            "ควร paste SLS จาก load combination จริงก่อน; ค่า ULS/γeq ด้านล่างเป็นเพียง estimate.")
+        with st.expander("Paste SLS cases from Excel", expanded=False):
+            sample = "Case\tP\tMx\tMy\tHx\tHy\nSLS-1\t3500\t0\t0\t70\t0"
+            st.code(sample, language="text")
+            txt = st.text_area("Paste SLS table here", height=130, key="paste_sls_cases")
+            if st.button("Import SLS table", key="btn_import_sls", use_container_width=True):
+                try:
+                    parsed = parse_load_cases_from_excel_text(txt, "SLS")
+                    st.session_state["load_cases_sls"] = [{
+                        "name": r["Case"], "P": r["P"], "Mx": r["Mx"],
+                        "My": r["My"], "Hx": r["Hx"], "Hy": r["Hy"]
+                    } for r in parsed]
+                    st.success(f"Imported {len(parsed)} SLS case(s).")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Import SLS failed: {exc}")
+        _sls_in = st.session_state.get("load_cases_sls", defaults["load_cases_sls"])
+        _sls_df = _sls_records_to_df(_sls_in)
+        _edited_sls = st.data_editor(
+            _sls_df, num_rows="dynamic", use_container_width=True,
+            key="sls_editor_main",
+            column_config={
+                "Case": st.column_config.TextColumn("Case Name", width="small"),
+                "P (kN)": st.column_config.NumberColumn(format="%.1f"),
+                "Mx (kN·m)": st.column_config.NumberColumn(format="%.1f"),
+                "My (kN·m)": st.column_config.NumberColumn(format="%.1f"),
+                "Hx (kN)": st.column_config.NumberColumn(format="%.1f"),
+                "Hy (kN)": st.column_config.NumberColumn(format="%.1f"),
+            })
+        _new_sls = []
+        for i, r in _edited_sls.iterrows():
+            name = str(r.get("Case", "")).strip() or f"SLS-{i+1}"
+            _new_sls.append({
+                "name": name,
+                "P": float(r.get("P (kN)", 0.0) or 0.0),
+                "Mx": float(r.get("Mx (kN·m)", 0.0) or 0.0),
+                "My": float(r.get("My (kN·m)", 0.0) or 0.0),
+                "Hx": float(r.get("Hx (kN)", 0.0) or 0.0),
+                "Hy": float(r.get("Hy (kN)", 0.0) or 0.0),
+            })
+        if _new_sls:
+            st.session_state["load_cases_sls"] = _new_sls
+        st.number_input(
+            "Equivalent ULS/SLS divisor γeq for estimate only",
+            min_value=1.00, max_value=2.00, step=0.05,
+            key="uls_to_sls_factor",
+            help="Used only to estimate service-level pile demand from ULS when true SLS load cases are unavailable.")
+
+    st.divider()
+    return st.button("🧮 Calculate STM", type="primary", use_container_width=True,
+                     key="calculate_stm_main")
+
+
 def _signed_strut_component(struts, idx, axis):
     if idx >= len(struts):
         return 0.0
@@ -656,6 +909,7 @@ DEFAULTS = {
     "top_bar_size": "DB20",
     "show_3d_force_labels": True,
     "wcap_uls_factor": 1.2,
+    "uls_to_sls_factor": 1.50,
 }
 _had_spacing_x = "spacing_factor_x" in st.session_state
 _had_spacing_y = "spacing_factor_y" in st.session_state
@@ -668,7 +922,7 @@ if not _had_spacing_y:
 
 st.title("🏗️ STM Pile Cap Designer")
 st.caption("Strut-and-Tie Method - ACI 318-19 / CRSI Design Handbook")
-st.caption("Build 2026-05-12 | includes 🧱 Pile Forces tab")
+st.caption("Build 2026-05-24 | Load Cases first + Excel paste + SLS pile-force summary")
 
 # --------- Save / Load JSON ---------
 with st.sidebar:
@@ -1018,172 +1272,100 @@ with st.sidebar:
 
     st.divider()
 
-    # ===== LOADS (always visible — required before Calculate STM) =====
-    import pandas as _pd_loads
-    st.subheader("📥 Load Cases")
+    # Load Cases and Calculate button are now shown in the first main tab.
+    calc_btn = False
 
-    # ── ULS ──────────────────────────────────────────────────────────────
-    with st.expander("🔴 ULS — Ultimate Limit State", expanded=True):
-        st.caption(
-            "ใช้สำหรับออกแบบเหล็กเสริม Pile Cap (STM) และเหล็กเสริมเสาเข็ม (PMM) "
-            "| Pu, Mux, Muy → pile reactions  |  Hux, Huy → direct shear share H/n")
-        _uls_cases_in = st.session_state.get(
-            "load_cases_uls", DEFAULTS["load_cases_uls"])
-        _uls_df = _pd_loads.DataFrame([{
-            "Case":       c.get("name", "ULS"),
-            "Pu (kN)":    float(c.get("Pu",  0.0)),
-            "Mux (kN·m)": float(c.get("Mux", 0.0)),
-            "Muy (kN·m)": float(c.get("Muy", 0.0)),
-            "Hux (kN)":   float(c.get("Hux", 0.0)),
-            "Huy (kN)":   float(c.get("Huy", 0.0)),
-        } for c in _uls_cases_in])
-        _edited_uls_pre = st.data_editor(
-            _uls_df, num_rows="dynamic",
-            use_container_width=True, key="uls_editor_pre",
-            column_config={
-                "Case":       st.column_config.TextColumn("Case Name", width="small"),
-                "Pu (kN)":    st.column_config.NumberColumn(format="%.1f"),
-                "Mux (kN·m)": st.column_config.NumberColumn(format="%.1f"),
-                "Muy (kN·m)": st.column_config.NumberColumn(format="%.1f"),
-                "Hux (kN)":   st.column_config.NumberColumn(format="%.1f"),
-                "Huy (kN)":   st.column_config.NumberColumn(format="%.1f"),
-            })
-        _new_uls_pre = []
-        for _, _r in _edited_uls_pre.iterrows():
-            _new_uls_pre.append({
-                "name": str(_r.get("Case", "ULS")),
-                "Pu":  float(_r.get("Pu (kN)",   0.0) or 0.0),
-                "Mux": float(_r.get("Mux (kN·m)", 0.0) or 0.0),
-                "Muy": float(_r.get("Muy (kN·m)", 0.0) or 0.0),
-                "Hux": float(_r.get("Hux (kN)",  0.0) or 0.0),
-                "Huy": float(_r.get("Huy (kN)",  0.0) or 0.0),
-            })
-        if _new_uls_pre:
-            st.session_state["load_cases_uls"] = _new_uls_pre
-        _case_names_pre = [c["name"] for c in _new_uls_pre] if _new_uls_pre else ["ULS-1"]
-        _cur_idx_pre = min(int(st.session_state.get("active_uls_idx", 0)),
-                           len(_case_names_pre) - 1)
-        _sel_pre = st.radio(
-            "✅ Active ULS case (ใช้คำนวณ STM):",
-            _case_names_pre, index=_cur_idx_pre,
-            horizontal=True, key="active_uls_radio_pre")
-        st.session_state["active_uls_idx"] = _case_names_pre.index(_sel_pre)
-
-    # ── SLS ──────────────────────────────────────────────────────────────
-    with st.expander("🔵 SLS — Serviceability Limit State", expanded=False):
-        st.caption(
-            "ใช้สำหรับตรวจสอบกำลังรับน้ำหนักเสาเข็ม (Geotechnical capacity) "
-            "| P_i(SLS) เทียบกับ Q_allow รายต้น")
-        _sls_cases_in = st.session_state.get(
-            "load_cases_sls", DEFAULTS["load_cases_sls"])
-        _sls_df = _pd_loads.DataFrame([{
-            "Case":       c.get("name", "SLS"),
-            "P (kN)":     float(c.get("P",  0.0)),
-            "Mx (kN·m)":  float(c.get("Mx", 0.0)),
-            "My (kN·m)":  float(c.get("My", 0.0)),
-            "Hx (kN)":    float(c.get("Hx", 0.0)),
-            "Hy (kN)":    float(c.get("Hy", 0.0)),
-        } for c in _sls_cases_in])
-        _edited_sls_pre = st.data_editor(
-            _sls_df, num_rows="dynamic",
-            use_container_width=True, key="sls_editor_pre",
-            column_config={
-                "Case":       st.column_config.TextColumn("Case Name", width="small"),
-                "P (kN)":     st.column_config.NumberColumn(format="%.1f"),
-                "Mx (kN·m)":  st.column_config.NumberColumn(format="%.1f"),
-                "My (kN·m)":  st.column_config.NumberColumn(format="%.1f"),
-                "Hx (kN)":    st.column_config.NumberColumn(format="%.1f"),
-                "Hy (kN)":    st.column_config.NumberColumn(format="%.1f"),
-            })
-        _new_sls_pre = []
-        for _, _r in _edited_sls_pre.iterrows():
-            _new_sls_pre.append({
-                "name": str(_r.get("Case", "SLS")),
-                "P":  float(_r.get("P (kN)",  0.0) or 0.0),
-                "Mx": float(_r.get("Mx (kN·m)", 0.0) or 0.0),
-                "My": float(_r.get("My (kN·m)", 0.0) or 0.0),
-                "Hx": float(_r.get("Hx (kN)", 0.0) or 0.0),
-                "Hy": float(_r.get("Hy (kN)", 0.0) or 0.0),
-            })
-        if _new_sls_pre:
-            st.session_state["load_cases_sls"] = _new_sls_pre
-
-    st.divider()
-    calc_btn = st.button("🧮 Calculate STM",
-                         type="primary", use_container_width=True)
 
 # ===== Validation =====
 ok_sp, mn_sp, viol, mn_req, pairs = validate_pile_spacing(
     coords, D, mf=2.5, clear_min=st.session_state.clear_min)
 mn_clear = min((p[3] for p in pairs), default=0.0)
 
-# ===== Layout & Status =====
-left, right = st.columns([3, 2], gap="large")
-with left:
-    st.subheader("📍 Layout Preview (Live)")
-    if not coords:
-        st.warning("No piles defined.")
-    else:
-        W_cap_preview = _cap_area_m2(cap_polygon, cap_lx, cap_ly) \
-                        * (h_cap/1000.0) * 24.0 \
-                        * st.session_state.wcap_uls_factor
-        pile_loads_preview = compute_pile_reactions(
-            coords, Pu + W_cap_preview, Mux, Muy,
-            load_point=(col_size["x"], col_size["y"]))
-        st.plotly_chart(
-            plot_layout_preview(
-                coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
-                col_size, shape_label,
-                cap_polygon=cap_polygon,
-                edge_info=(e_left, e_right, e_top, e_bot),
-                pile_loads=pile_loads_preview),
-            use_container_width=True)
-        if trunc_extra:
-            st.info(trunc_extra)
+# ===== Load Cases + Layout Tabs =====
+_setup_load_tab, _setup_plan_tab = st.tabs(["📥 Load Cases", "📊 Plan / Layout"])
+with _setup_load_tab:
+    calc_btn = _render_load_case_manager(DEFAULTS)
 
-with right:
-    st.subheader("✅ Layout Status")
-    if not coords:
-        st.error("No piles defined.")
-    else:
-        c1, c2 = st.columns(2)
-        c1.metric("Piles", len(coords))
-        c2.metric("Shape", shape_label)
-        c1.metric("Min spacing", "{:.0f} mm".format(mn_sp))
-        c2.metric("Required (2.5 × D_short)",
-                  "{:.0f} mm".format(mn_req),
-                  help="ACI rule: 2.5 × pile_min_dim "
-                       "(shorter side for Barrette piles)")
-        c1.metric("Min clear", "{:.0f} mm".format(mn_clear))
-        c2.metric("Required clear", "{:.0f} mm".format(st.session_state.clear_min))
-        if ok_sp:
-            st.success(
-                "All pile-pair distances and edge clearances satisfy limits.")
+# Refresh active ULS variables after the Load Cases tab editor/paste import has updated session_state.
+# Without this, pressing Calculate immediately after editing a cell would use the previous rerun's values.
+_uls_cases = st.session_state.get("load_cases_uls", DEFAULTS["load_cases_uls"])
+_active_idx = int(st.session_state.get("active_uls_idx", 0))
+_active_idx = min(_active_idx, len(_uls_cases) - 1) if _uls_cases else 0
+_active_case = _uls_cases[_active_idx] if _uls_cases else DEFAULTS["load_cases_uls"][0]
+Pu  = float(_active_case.get("Pu",  5000.0))
+Mux = float(_active_case.get("Mux", 0.0))
+Muy = float(_active_case.get("Muy", 0.0))
+Hux = float(_active_case.get("Hux", 0.0))
+Huy = float(_active_case.get("Huy", 0.0))
+
+with _setup_plan_tab:
+    # ===== Layout & Status =====
+    left, right = st.columns([3, 2], gap="large")
+    with left:
+        st.subheader("📍 Layout Preview (Live)")
+        if not coords:
+            st.warning("No piles defined.")
         else:
-            st.error("{} pile spacing/clearance violation(s).".format(len(viol)))
-            for _i, _j, _d, _clear, _reason in viol[:5]:
-                st.caption("P{}-P{}: {}".format(_i, _j, _reason))
-        st.markdown("**Pile-Pair Distances** (d = √(Δx² + Δy²))")
-        if pairs:
-            pdf = pd.DataFrame([{
-                "Pair": "P{}-P{}".format(i, j),
-                "d (mm)": "{:.0f}".format(d),
-                "Clear (mm)": "{:.0f}".format(clear),
-                "c/c OK?": "✅" if ctc_ok else "❌",
-                "Clear OK?": "✅" if clear_ok else "❌",
-                "OK?": "✅" if ok else "❌",
-            } for (i, j, d, clear, ctc_ok, clear_ok, ok) in pairs])
-            st.dataframe(pdf, use_container_width=True, hide_index=True,
-                         height=min(35*len(pairs)+38, 240))
+            W_cap_preview = _cap_area_m2(cap_polygon, cap_lx, cap_ly) \
+                            * (h_cap/1000.0) * 24.0 \
+                            * st.session_state.wcap_uls_factor
+            pile_loads_preview = compute_pile_reactions(
+                coords, Pu + W_cap_preview, Mux, Muy,
+                load_point=(col_size["x"], col_size["y"]))
+            st.plotly_chart(
+                plot_layout_preview(
+                    coords, D, cap_lx, cap_ly, cap_cx, cap_cy,
+                    col_size, shape_label,
+                    cap_polygon=cap_polygon,
+                    edge_info=(e_left, e_right, e_top, e_bot),
+                    pile_loads=pile_loads_preview),
+                use_container_width=True)
+            if trunc_extra:
+                st.info(trunc_extra)
 
-st.info(
-    "ℹ️ **ACI 318-19 §13.4.6.3 Note:** When the Strut-and-Tie Method (STM) "
-    "is used to design a pile cap in accordance with ACI 318-19 Chapter 23, "
-    "separate **beam-shear** and **two-way (punching)** shear checks are "
-    "**NOT required**. The shear behavior is implicitly captured through "
-    "the strength of struts and nodal zones in the STM model.")
+    with right:
+        st.subheader("✅ Layout Status")
+        if not coords:
+            st.error("No piles defined.")
+        else:
+            c1, c2 = st.columns(2)
+            c1.metric("Piles", len(coords))
+            c2.metric("Shape", shape_label)
+            c1.metric("Min spacing", "{:.0f} mm".format(mn_sp))
+            c2.metric("Required (2.5 × D_short)",
+                      "{:.0f} mm".format(mn_req),
+                      help="ACI rule: 2.5 × pile_min_dim "
+                           "(shorter side for Barrette piles)")
+            c1.metric("Min clear", "{:.0f} mm".format(mn_clear))
+            c2.metric("Required clear", "{:.0f} mm".format(st.session_state.clear_min))
+            if ok_sp:
+                st.success(
+                    "All pile-pair distances and edge clearances satisfy limits.")
+            else:
+                st.error("{} pile spacing/clearance violation(s).".format(len(viol)))
+                for _i, _j, _d, _clear, _reason in viol[:5]:
+                    st.caption("P{}-P{}: {}".format(_i, _j, _reason))
+            st.markdown("**Pile-Pair Distances** (d = √(Δx² + Δy²))")
+            if pairs:
+                pdf = pd.DataFrame([{
+                    "Pair": "P{}-P{}".format(i, j),
+                    "d (mm)": "{:.0f}".format(d),
+                    "Clear (mm)": "{:.0f}".format(clear),
+                    "c/c OK?": "✅" if ctc_ok else "❌",
+                    "Clear OK?": "✅" if clear_ok else "❌",
+                    "OK?": "✅" if ok else "❌",
+                } for (i, j, d, clear, ctc_ok, clear_ok, ok) in pairs])
+                st.dataframe(pdf, use_container_width=True, hide_index=True,
+                             height=min(35*len(pairs)+38, 240))
 
-st.divider()
+    st.info(
+        "ℹ️ **ACI 318-19 §13.4.6.3 Note:** When the Strut-and-Tie Method (STM) "
+        "is used to design a pile cap in accordance with ACI 318-19 Chapter 23, "
+        "separate **beam-shear** and **two-way (punching)** shear checks are "
+        "**NOT required**. The shear behavior is implicitly captured through "
+        "the strength of struts and nodal zones in the STM model.")
+
+    st.divider()
 
 # ===== Calculate =====
 # ===== Calculate =====
@@ -1345,9 +1527,9 @@ if "_stm_results" in st.session_state:
         st.dataframe(pd.DataFrame(recs), use_container_width=True,
                      hide_index=True)
 
-    t1, t2, t6, t_loads, t3, t7, t4, t8, t5 = st.tabs([
-        "📊 Plan", "📈 Elevation", "🎲 3D View",
-        "📥 Loads", "🔩 Bottom Rebar", "🪟 Top Rebar",
+    t_loads, t1, t2, t6, t3, t7, t4, t8, t5 = st.tabs([
+        "📥 Load Cases", "📊 Plan", "📈 Elevation", "🎲 3D View",
+        "🔩 Bottom Rebar", "🪟 Top Rebar",
         "⚓ Anchor", "🧱 Pile Forces", "📋 Detail"])
 
     with t1:
@@ -1423,40 +1605,16 @@ if "_stm_results" in st.session_state:
                 "Design Force Summary for governing bottom reinforcement.")
     
     with t_loads:
-        st.markdown("### SLS Pile Reactions")
-        st.caption(
-            "แรงแนวแกนที่เสาเข็มแต่ละต้นภายใต้ SLS loads — เทียบกับ Q_allow ของเสาเข็ม "
-            "| แก้ไข SLS loads ได้ใน Load Cases ด้านบน (ก่อนกด Calculate STM)")
-        _sls_cases_res = st.session_state.get(
-            "load_cases_sls", DEFAULTS["load_cases_sls"])
-        if coords and _sls_cases_res:
-            from stm_calculations import compute_pile_reactions as _cpr
-            _sls_pile_data2 = {}
-            for _sc in _sls_cases_res:
-                try:
-                    _pl2, _ = _cpr(coords,
-                                   float(_sc.get("P", 0.0)),
-                                   float(_sc.get("Mx", 0.0)),
-                                   float(_sc.get("My", 0.0)),
-                                   return_info=True)
-                    _sls_pile_data2[_sc["name"]] = _pl2
-                except Exception:
-                    _sls_pile_data2[_sc["name"]] = [None] * len(coords)
-            _sls_tbl2 = {
-                "Pile": ["P{}".format(i+1) for i in range(len(coords))],
-                "X (mm)": ["{:.0f}".format(c[0]) for c in coords],
-                "Y (mm)": ["{:.0f}".format(c[1]) for c in coords],
-            }
-            for _sc in _sls_cases_res:
-                _pl2 = _sls_pile_data2[_sc["name"]]
-                _sls_tbl2["{} P_i (kN)".format(_sc["name"])] = [
-                    "{:.1f}".format(v) if v is not None else "—" for v in _pl2]
-            st.dataframe(pd.DataFrame(_sls_tbl2),
-                         use_container_width=True, hide_index=True)
-            st.caption(
-                "\u26a0\ufe0f P_i(SLS) คำนวณจาก P, Mx, My เท่านั้น ยังไม่รวม W_cap")
-        else:
-            st.info("ยังไม่มีข้อมูล SLS — กรอกใน SLS Load Cases ด้านบนก่อน Calculate STM")
+        st.markdown("### Load Cases Used in This Calculation")
+        st.caption("Load Cases are edited before calculation in the first main tab. This tab shows the current stored tables for review.")
+        st.markdown("#### ULS Cases")
+        st.dataframe(_uls_records_to_df(st.session_state.get("load_cases_uls", DEFAULTS["load_cases_uls"])),
+                     use_container_width=True, hide_index=True)
+        st.markdown("#### SLS Cases")
+        st.dataframe(_sls_records_to_df(st.session_state.get("load_cases_sls", DEFAULTS["load_cases_sls"])),
+                     use_container_width=True, hide_index=True)
+        st.info("SLS pile-force summary is shown in the 🧱 Pile Forces tab. Use true SLS combinations where possible; ULS/γeq is only an estimate.")
+
     with t3:
         st.markdown("### Required Reinforcement")
         st.caption(
@@ -2033,6 +2191,78 @@ As_min,bottom = ρ_min × Ag
                 "tie components as pile-head shear. Pile-head moment is not "
                 "calculated here because it depends on pile fixity, embedment, "
                 "connection detailing, and soil/substructure stiffness assumptions.")
+
+        st.markdown("---")
+        st.markdown("### Pile Forces for SLS / Preliminary Allowable Pile Capacity")
+        st.caption(
+            "ใช้สำหรับประมาณ demand ระดับใช้งานของเสาเข็มรายต้นเพื่อเทียบกับ Q_allow. "
+            "ถ้ามี SLS load combinations จริง ให้ใช้ตาราง SLS โดยตรง; ค่า ULS/γeq เป็นเพียง estimate.")
+        try:
+            _W_cap_nom_sls = _cap_area_m2(cap_polygon, cap_lx, cap_ly) * (h_cap/1000.0) * 24.0
+            _sls_cases_pf = st.session_state.get("load_cases_sls", DEFAULTS["load_cases_sls"])
+            _sls_rows = []
+            _max_sls_comp = None
+            _max_sls_item = None
+            for _sc in _sls_cases_pf:
+                _case = str(_sc.get("name", "SLS"))
+                _P_total_sls = float(_sc.get("P", 0.0)) + _W_cap_nom_sls
+                _pl_sls = compute_pile_reactions(
+                    coords, _P_total_sls,
+                    float(_sc.get("Mx", 0.0)), float(_sc.get("My", 0.0)),
+                    load_point=(col_size["x"], col_size["y"]))
+                _hx_each = float(_sc.get("Hx", 0.0)) / len(coords) if coords else 0.0
+                _hy_each = float(_sc.get("Hy", 0.0)) / len(coords) if coords else 0.0
+                for _i, (_coord, _pval) in enumerate(zip(coords, _pl_sls), 1):
+                    _hres = math.hypot(_hx_each, _hy_each)
+                    _row = {
+                        "Case": _case,
+                        "Pile": f"P{_i}",
+                        "X (mm)": "{:.0f}".format(_coord[0]),
+                        "Y (mm)": "{:.0f}".format(_coord[1]),
+                        "P_i,SLS incl. Wcap (kN)": "{:.1f}".format(_pval),
+                        "H_x,SLS per pile (kN)": "{:.1f}".format(_hx_each),
+                        "H_y,SLS per pile (kN)": "{:.1f}".format(_hy_each),
+                        "H_res,SLS (kN)": "{:.1f}".format(_hres),
+                    }
+                    _sls_rows.append(_row)
+                    if _max_sls_comp is None or _pval > _max_sls_comp:
+                        _max_sls_comp = _pval
+                        _max_sls_item = (_case, f"P{_i}")
+            if _sls_rows:
+                st.dataframe(pd.DataFrame(_sls_rows), use_container_width=True, hide_index=True)
+                if _max_sls_item:
+                    st.success(
+                        "Preliminary required allowable compression capacity ≥ {:.1f} kN/pile "
+                        "from {} / {} (service demand incl. nominal cap self-weight).".format(
+                            _max_sls_comp, _max_sls_item[0], _max_sls_item[1]))
+            _gamma_eq = float(st.session_state.get("uls_to_sls_factor", 1.50))
+            _uls_est_rows = []
+            _max_est = None
+            _max_est_item = None
+            for _i, (_coord, _pu) in enumerate(zip(coords, results.get("pile_loads_kN", [])), 1):
+                _p_est = float(_pu) / max(_gamma_eq, 1e-9)
+                _row = {
+                    "Basis": "Active ULS / γeq",
+                    "Pile": f"P{_i}",
+                    "P_i,ULS (kN)": "{:.1f}".format(_pu),
+                    "γeq": "{:.2f}".format(_gamma_eq),
+                    "Estimated P_i,SLS (kN)": "{:.1f}".format(_p_est),
+                }
+                _uls_est_rows.append(_row)
+                if _max_est is None or _p_est > _max_est:
+                    _max_est = _p_est
+                    _max_est_item = f"P{_i}"
+            with st.expander("Estimated SLS from active ULS (fallback only)", expanded=False):
+                st.warning(
+                    "ไม่สามารถถอด SLS ที่ถูกต้องจาก ULS ได้ถ้าไม่ทราบ load components และ load factors. "
+                    "ตารางนี้ใช้ P_i,ULS/γeq เพื่อ screening เท่านั้น ไม่ควรใช้แทน SLS combination จริง.")
+                st.dataframe(pd.DataFrame(_uls_est_rows), use_container_width=True, hide_index=True)
+                if _max_est_item:
+                    st.info(
+                        "Estimated preliminary Q_allow ≥ {:.1f} kN/pile from active ULS/γeq, governing {}.".format(
+                            _max_est, _max_est_item))
+        except Exception as _exc:
+            st.error(f"SLS pile-force summary failed: {_exc}")
 
     # Export Report
     st.divider()
